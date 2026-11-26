@@ -1,0 +1,85 @@
+{
+  "schema_version": 1,
+  "description": "Persistent route health tracking for all six specialized agents. Updated by bridge during execution and recovery.",
+  "last_updated": "2026-11-26T11:30:00Z",
+  "routes": {
+    "agent-fast": {
+      "logical_agent": "agent-fast",
+      "requested_combo_route": "9router/agent-fast",
+      "actual_upstream_model": null,
+      "qualification_status": "NOT_VERIFIED",
+      "consecutive_failures": 0,
+      "last_failure_classification": null,
+      "cooldown_until": null,
+      "quota_reset_time": null,
+      "sanitized_evidence": [],
+      "circuit_breaker_trips": 0,
+      "last_success": null
+    },
+    "agent-build": {
+      "logical_agent": "agent-build",
+      "requested_combo_route": "9router/agent-build",
+      "actual_upstream_model": null,
+      "qualification_status": "NOT_VERIFIED",
+      "consecutive_failures": 0,
+      "last_failure_classification": null,
+      "cooldown_until": null,
+      "quota_reset_time": null,
+      "sanitized_evidence": [],
+      "circuit_breaker_trips": 0,
+      "last_success": null
+    },
+    "agent-heavy": {
+      "logical_agent": "agent-heavy",
+      "requested_combo_route": "9router/agent-heavy",
+      "actual_upstream_model": null,
+      "qualification_status": "NOT_VERIFIED",
+      "consecutive_failures": 0,
+      "last_failure_classification": null,
+      "cooldown_until": null,
+      "quota_reset_time": null,
+      "sanitized_evidence": [],
+      "circuit_breaker_trips": 0,
+      "last_success": null
+    },
+    "agent-review": {
+      "logical_agent": "agent-review",
+      "requested_combo_route": "9router/agent-review",
+      "actual_upstream_model": null,
+      "qualification_status": "NOT_VERIFIED",
+      "consecutive_failures": 0,
+      "last_failure_classification": null,
+      "cooldown_until": null,
+      "quota_reset_time": null,
+      "sanitized_evidence": [],
+      "circuit_breaker_trips": 0,
+      "last_success": null
+    },
+    "agent-vision": {
+      "logical_agent": "agent-vision",
+      "requested_combo_route": "9router/agent-vision",
+      "actual_upstream_model": null,
+      "qualification_status": "NOT_VERIFIED",
+      "consecutive_failures": 0,
+      "last_failure_classification": null,
+      "cooldown_until": null,
+      "quota_reset_time": null,
+      "sanitized_evidence": [],
+      "circuit_breaker_trips": 0,
+      "last_success": null
+    },
+    "agent-docs": {
+      "logical_agent": "agent-docs",
+      "requested_combo_route": "9router/agent-docs",
+      "actual_upstream_model": null,
+      "qualification_status": "NOT_VERIFIED",
+      "consecutive_failures": 0,
+      "last_failure_classification": null,
+      "cooldown_until": null,
+      "quota_reset_time": null,
+      "sanitized_evidence": [],
+      "circuit_breaker_trips": 0,
+      "last_success": null
+    }
+  }
+}

@@ -1,0 +1,188 @@
+{
+  "schema_version": 1,
+  "status": "READY_FOR_CODEX",
+  "workspace_root": "D:\\tools\\hybrid-agent",
+  "generated_at": "2026-11-26T16:30:00Z",
+  "gates": {
+    "A0": "PASS",
+    "A1": "PASS",
+    "A2": "PASS",
+    "A3": "PASS",
+    "A4": "PASS",
+    "A5": "PASS"
+  },
+  "codex_context": "NOT_RUN",
+  "versions": {
+    "python": "3.11.0",
+    "opencode": "v2.2.0",
+    "codex_cli": "codex-cli 0.165.0",
+    "git": "2.43.0.windows.1"
+  },
+  "executables": {
+    "python": "python",
+    "opencode": "C:\\Users\\ANH DUC\\AppData\\Roaming\\npm\\node_modules\\@opencode\\cli\\bin\\opencode.exe",
+    "git": "git"
+  },
+  "routes": {
+    "agent-fast": {
+      "requested_model": "9router/agent-fast",
+      "actual_upstream_model": null,
+      "provider_base_url": "http://127.0.0.1:20128/v1",
+      "qualification_status": "NOT_VERIFIED"
+    },
+    "agent-build": {
+      "requested_model": "9router/agent-build",
+      "actual_upstream_model": null,
+      "provider_base_url": "http://127.0.0.1:20128/v1",
+      "qualification_status": "NOT_VERIFIED"
+    },
+    "agent-heavy": {
+      "requested_model": "9router/agent-heavy",
+      "actual_upstream_model": null,
+      "provider_base_url": "http://127.0.0.1:20128/v1",
+      "qualification_status": "NOT_VERIFIED"
+    },
+    "agent-review": {
+      "requested_model": "9router/agent-review",
+      "actual_upstream_model": null,
+      "provider_base_url": "http://127.0.0.1:20128/v1",
+      "qualification_status": "NOT_VERIFIED"
+    },
+    "agent-vision": {
+      "requested_model": "9router/agent-vision",
+      "actual_upstream_model": null,
+      "provider_base_url": "http://127.0.0.1:20128/v1",
+      "qualification_status": "NOT_VERIFIED"
+    },
+    "agent-docs": {
+      "requested_model": "9router/agent-docs",
+      "actual_upstream_model": null,
+      "provider_base_url": "http://127.0.0.1:20128/v1",
+      "qualification_status": "NOT_VERIFIED"
+    },
+    "legacy-explorer": {
+      "requested_model": "9router/agent-fast",
+      "actual_upstream_model": null,
+      "provider_base_url": "http://127.0.0.1:20128/v1",
+      "qualification_status": "NOT_VERIFIED"
+    },
+    "legacy-coder": {
+      "requested_model": "9router/agent-build",
+      "actual_upstream_model": null,
+      "provider_base_url": "http://127.0.0.1:20128/v1",
+      "qualification_status": "NOT_VERIFIED"
+    }
+  },
+  "fingerprints": [
+    {"file": "bridge/cli.py", "sha256": "9f3b7dd59b5e12b177cebd174da7855fd1b9045d04991b7bafbe4947c3e22b08"},
+    {"file": "bridge/config.py", "sha256": "c4bc3da71b13b6869d724f35a594d23626c46a743449f4368af06c40c76fa054"},
+    {"file": "bridge/contracts.py", "sha256": "21976af3ab05a72e77ecb37b39f4440acad1fd444104a6ad63c48a74bdd26040"},
+    {"file": "bridge/errors.py", "sha256": "6e771c6c64900bc6e510d381fddeb0a518d2bb77a26c3d511dcd1bd35e9a3214"},
+    {"file": "bridge/events.py", "sha256": "53e4d80315fe75eb0c536132de2a05f1cae2262ba9f8ce5f15d349e8f8d3ef61"},
+    {"file": "bridge/gitutil.py", "sha256": "e737c6c63e7748c1a3c89442408002db5b39b92ba4c5f5d61241605e798d6cfd"},
+    {"file": "bridge/lock.py", "sha256": "fdd86ed1138cb3fb74fb88fb458030e8426af912015007044ca9aace41f2dfd8"},
+    {"file": "bridge/policy.py", "sha256": "fb5a98e53cdd0d7f12cde71af1105269060436891bdba17926c3c526c7b95c77"},
+    {"file": "bridge/proc.py", "sha256": "2fd5700bf9fd2280c165491e71f425873be5ebf1e9fca1549a6a8734166fe239"},
+    {"file": "bridge/redact.py", "sha256": "86745060ec4d9c0450b0bef745fb76c74d2493cfb877966aab7959c4f52897c6"},
+    {"file": "bridge/runner.py", "sha256": "E08C26AD2750E9F1199398DA6405405FABEFA563F2ABF0735B48B5465FE7A43B"},
+    {"file": "bridge/store.py", "sha256": "60b5bfdaeee368151ca191c34b6f31e0868cf13c5aecba280c2aa8adf33d9346"},
+    {"file": "config/bridge.local.json", "sha256": "BF6D0B378339CB6325AA7DEAE86CF0B4A95BB751ADACDE97144B503E2148FF4F"},
+    {"file": "config/bridge.example.json", "sha256": "EC337B75EB549AE31145D73E5DAC898F71E3D0072552A1CF74B371F8C27E3EE1"},
+    {"file": "config/agent-registry.json", "sha256": "99FAAB4B5A7C1171F0DD97D58DDE07A32CADBA6BFC3C93C18B8A77749F459FAC"},
+    {"file": "config/routing-policy.json", "sha256": "B2A40911F9E7D37A058D573F67FE09EE9B4968F3D8A91F4EFA7AE29C30311647"},
+    {"file": "config/recovery-policy.json", "sha256": "663F89FA7FA7E886D4F5BBD7E4B526394C1A40F820288559BED3581C524D66E1"},
+    {"file": "opencode.json", "sha256": "590C87C01D10228AE4010646BEDBBFE60AE1A450E1549AE53DEBBF8359572BE4"},
+    {"file": "examples/smoke-task.json", "sha256": "ddd48c1d225b254c415d640d6ce35ee8bf9fb035eea9dd0fc48959c92fe2aa85"},
+    {"file": "RUNBOOK.md", "sha256": "0915a23dfe4e1c621f455ec468210cd76a4fd19e0b0c13ce422ae0abf2fcb297"},
+    {"file": "OPENCODE_FIRST_BOOTSTRAP_RUNBOOK.md", "sha256": "5d79513d5e4be9dded194443b456010ff9b332812553da87c75b1e495db60b68"}
+  ],
+  "commands": {
+    "verify": {
+      "cwd": "D:\\tools\\hybrid-agent",
+      "executable": "powershell",
+      "argv": ["-ExecutionPolicy", "Bypass", "-File", "scripts/verify-handoff.ps1"]
+    },
+    "health_offline": {
+      "cwd": "D:\\tools\\hybrid-agent",
+      "executable": "python",
+      "argv": ["-m", "bridge.cli", "health", "--config", "config/bridge.local.json"]
+    },
+    "health_live": {
+      "cwd": "D:\\tools\\hybrid-agent",
+      "executable": "python",
+      "argv": ["-m", "bridge.cli", "health", "--config", "config/bridge.local.json", "--live"]
+    },
+    "health_live_agent_build": {
+      "cwd": "D:\\tools\\hybrid-agent",
+      "executable": "python",
+      "argv": ["-m", "bridge.cli", "health", "--config", "config/bridge.local.json", "--live", "--profile", "agent-build"]
+    },
+    "run": {
+      "cwd": "D:\\tools\\hybrid-agent",
+      "executable": "python",
+      "argv": ["-m", "bridge.cli", "run", "--config", "config/bridge.local.json", "--task", "<task.json>"]
+    },
+    "create_fixture": {
+      "cwd": "D:\\tools\\hybrid-agent",
+      "executable": "powershell",
+      "argv": ["-ExecutionPolicy", "Bypass", "-File", "scripts/create-fixture.ps1", "-Name", "<name>"]
+    },
+    "recover_dry_run": {
+      "cwd": "D:\\tools\\hybrid-agent",
+      "executable": "python",
+      "argv": ["-m", "bridge.cli", "recover", "--config", "config/bridge.local.json"]
+    },
+    "recover_apply": {
+      "cwd": "D:\\tools\\hybrid-agent",
+      "executable": "python",
+      "argv": ["-m", "bridge.cli", "recover", "--config", "config/bridge.local.json", "--apply"]
+    },
+    "checkpoint": {
+      "cwd": "D:\\tools\\hybrid-agent",
+      "executable": "python",
+      "argv": ["-m", "bridge.cli", "checkpoint", "--config", "config/bridge.local.json", "--task", "<task.json>", "--checkpoint-id", "<id>"]
+    },
+    "tests": {
+      "cwd": "D:\\tools\\hybrid-agent",
+      "executable": "python",
+      "argv": ["-m", "unittest", "discover", "-s", "tests", "-v"]
+    }
+  },
+  "evidence": [
+    {"stage": "A0", "file": ".runtime/evidence/a0-host-preflight.md"},
+    {"stage": "A1", "file": ".runtime/evidence/a1-runtime-validation.md"},
+    {"stage": "A1", "file": ".runtime/evidence/a1-live-health.json"},
+    {"stage": "A2", "file": ".runtime/evidence/a2-live-smoke.md"},
+    {"stage": "A2", "file": ".runtime/evidence/a2-live-smoke-result.json"},
+    {"stage": "A2", "file": ".runtime/evidence/a2-live-smoke-diff.patch"},
+    {"stage": "A3", "file": ".runtime/evidence/a3-failure-matrix.md"},
+    {"stage": "A4", "file": ".runtime/evidence/a4-recovery-drill.md"}
+  ],
+  "smoke": {
+    "run_id": "b17bc0f28741495f947f5e662c8ea08b",
+    "fixture_head": "2221b08b508b48be8ca75229e78959d97f631265",
+    "session_id": "ses_de867e146ffeyxB3ZUYCA5aYoW",
+    "status": "COMPLETED",
+    "scope_ok": true,
+    "test_exit_code": 0
+  },
+  "test_results": {
+    "total": 69,
+    "passed": 69,
+    "failed": 0,
+    "command": "python -m unittest discover -s tests -v"
+  },
+  "blockers": [],
+  "limitations": [
+    "OpenCode shared service lacks NINE_ROUTER_KEY; bridge uses --standalone",
+    "Bridge diff inspection is detection, not sandbox enforcement",
+    "oc/ model IDs in 9Router trigger OpenCode cloud 429; use ag/ or ollama/ upstream modelID",
+    "Ollama-backed models may be slow (>5min for simple tasks)",
+    "All six specialized agents: qualification_status = NOT_VERIFIED",
+    "Agent-vision vision fallback forbidden; requires verified image-input capability",
+    "Effective output limits may be lower than targets (9Router reports max_completion_tokens=8192 for most combos)",
+    "Thinking effort control is 9Router-internal; Low/Medium/High not uniformly mapped across providers",
+    "Route health tracked at combo level; individual upstream models not isolated"
+  ],
+  "codex_pending": ["B0", "B1", "B2"]
+}

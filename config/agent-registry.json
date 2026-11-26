@@ -1,0 +1,208 @@
+{
+  "schema_version": 1,
+  "description": "Machine-readable registry of specialized logical agents for the Hybrid Agent CLI Bridge. Each entry maps a logical agent ID to its operational profile, capabilities, and verified settings.",
+  "agents": {
+    "agent-fast": {
+      "id": "agent-fast",
+      "description": "Lightweight execution worker for preflight checks, environment setup, small scripts, log analysis, test execution, and lightweight troubleshooting.",
+      "suitable_tasks": [
+        "Host preflight",
+        "Environment setup",
+        "Small Python and PowerShell scripts",
+        "Log analysis",
+        "Test execution",
+        "Lightweight troubleshooting",
+        "Small automation tasks"
+      ],
+      "unsuitable_tasks": [
+        "Complex architecture",
+        "Large implementation tasks",
+        "Multi-module debugging",
+        "Complex business logic"
+      ],
+      "model_route": "9router/agent-fast",
+      "execution_profile": "bridge-fast",
+      "required_capabilities": ["text", "reasoning"],
+      "permission_policy": "write",
+      "thinking_preference": "auto_low",
+      "thinking_config_mechanism": "9router_combo_internal",
+      "target_context_limit": 128000,
+      "target_output_limit": 8192,
+      "effective_context_limit": 128000,
+      "effective_output_limit": 8192,
+      "context_safety_margin": 0.1,
+      "recovery_policy": "agent-fast",
+      "escalation_candidates": ["agent-build"],
+      "qualification_status": "NOT_VERIFIED",
+      "evidence_references": []
+    },
+    "agent-build": {
+      "id": "agent-build",
+      "description": "General coding worker for backend and frontend development, feature implementation, bug fixes, refactoring, unit and integration test creation, CLI tool development, and automation implementation.",
+      "suitable_tasks": [
+        "Backend and frontend development",
+        "Feature implementation",
+        "Bug fixes",
+        "Refactoring",
+        "Unit and integration test creation",
+        "CLI tool development",
+        "Automation implementation"
+      ],
+      "unsuitable_tasks": [
+        "Complex architecture analysis",
+        "Multi-module debugging requiring deep reasoning",
+        "Complex state management",
+        "Database migrations"
+      ],
+      "model_route": "9router/agent-build",
+      "execution_profile": "bridge-build",
+      "required_capabilities": ["text", "image", "tools", "reasoning"],
+      "permission_policy": "write",
+      "thinking_preference": "auto_medium",
+      "thinking_config_mechanism": "9router_combo_internal",
+      "target_context_limit": 128000,
+      "target_output_limit": 16384,
+      "effective_context_limit": 128000,
+      "effective_output_limit": 16384,
+      "context_safety_margin": 0.1,
+      "recovery_policy": "agent-build",
+      "escalation_candidates": ["agent-heavy"],
+      "qualification_status": "NOT_VERIFIED",
+      "evidence_references": []
+    },
+    "agent-heavy": {
+      "id": "agent-heavy",
+      "description": "Complex reasoning and engineering worker for complex implementation, architecture analysis, multi-module debugging, difficult business logic, concurrency, database migrations, and complex state management.",
+      "suitable_tasks": [
+        "Complex implementation",
+        "Architecture analysis",
+        "Multi-module debugging",
+        "Difficult business logic",
+        "Concurrency",
+        "Database migrations",
+        "Complex state management"
+      ],
+      "unsuitable_tasks": [
+        "Simple automation",
+        "Lightweight troubleshooting",
+        "Documentation tasks",
+        "Independent code review"
+      ],
+      "model_route": "9router/agent-heavy",
+      "execution_profile": "bridge-heavy",
+      "required_capabilities": ["text", "image", "audio", "video", "pdf", "tools", "reasoning", "search"],
+      "permission_policy": "write",
+      "thinking_preference": "high",
+      "thinking_config_mechanism": "9router_combo_internal",
+      "target_context_limit": 128000,
+      "target_output_limit": 16384,
+      "effective_context_limit": 128000,
+      "effective_output_limit": 16384,
+      "context_safety_margin": 0.1,
+      "recovery_policy": "agent-heavy",
+      "escalation_candidates": ["Codex Orchestrator"],
+      "qualification_status": "NOT_VERIFIED",
+      "evidence_references": []
+    },
+    "agent-review": {
+      "id": "agent-review",
+      "description": "Independent reviewer for code review, regression analysis, specification compliance, test coverage analysis, defect identification, and reliability and security review support.",
+      "suitable_tasks": [
+        "Code review",
+        "Regression analysis",
+        "Specification compliance",
+        "Test coverage analysis",
+        "Defect identification",
+        "Reliability and security review support"
+      ],
+      "unsuitable_tasks": [
+        "Implementation",
+        "Bug fixes",
+        "Feature development",
+        "Automation tasks"
+      ],
+      "model_route": "9router/agent-review",
+      "execution_profile": "bridge-review",
+      "required_capabilities": ["text", "tools", "reasoning"],
+      "permission_policy": "read_only",
+      "thinking_preference": "medium_high",
+      "thinking_config_mechanism": "9router_combo_internal",
+      "target_context_limit": 128000,
+      "target_output_limit": 8192,
+      "effective_context_limit": 128000,
+      "effective_output_limit": 8192,
+      "context_safety_margin": 0.1,
+      "recovery_policy": "agent-review",
+      "escalation_candidates": ["Native Codex Reviewer"],
+      "qualification_status": "NOT_VERIFIED",
+      "evidence_references": []
+    },
+    "agent-vision": {
+      "id": "agent-vision",
+      "description": "Multimodal analysis worker for screenshot analysis, UI/UX review, visual regression, wireframe interpretation, design comparison, and image-based frontend requirements.",
+      "suitable_tasks": [
+        "Screenshot analysis",
+        "UI/UX review",
+        "Visual regression",
+        "Wireframe interpretation",
+        "Design comparison",
+        "Image-based frontend requirements"
+      ],
+      "unsuitable_tasks": [
+        "Text-only coding tasks",
+        "Documentation",
+        "Code review without images",
+        "Backend implementation"
+      ],
+      "model_route": "9router/agent-vision",
+      "execution_profile": "bridge-vision",
+      "required_capabilities": ["text", "image", "audio", "video", "tools", "reasoning"],
+      "permission_policy": "write",
+      "thinking_preference": "medium",
+      "thinking_config_mechanism": "9router_combo_internal",
+      "target_context_limit": 64000,
+      "target_output_limit": 8192,
+      "effective_context_limit": 64000,
+      "effective_output_limit": 8192,
+      "context_safety_margin": 0.15,
+      "recovery_policy": "agent-vision",
+      "escalation_candidates": ["approved vision-capable alternative", "Codex"],
+      "qualification_status": "NOT_VERIFIED",
+      "evidence_references": []
+    },
+    "agent-docs": {
+      "id": "agent-docs",
+      "description": "Documentation worker for runbooks, technical specifications, business documentation, implementation artifacts, handoff documents, context summarization, and checkpoint summaries.",
+      "suitable_tasks": [
+        "Runbooks",
+        "Technical specifications",
+        "Business documentation",
+        "Implementation artifacts",
+        "Handoff documents",
+        "Context summarization",
+        "Checkpoint summaries"
+      ],
+      "unsuitable_tasks": [
+        "Application source code modification",
+        "Complex implementation",
+        "Debugging",
+        "Test creation"
+      ],
+      "model_route": "9router/agent-docs",
+      "execution_profile": "bridge-docs",
+      "required_capabilities": ["text", "image", "audio", "video", "reasoning", "search"],
+      "permission_policy": "write_docs_only",
+      "thinking_preference": "low",
+      "thinking_config_mechanism": "9router_combo_internal",
+      "target_context_limit": 128000,
+      "target_output_limit": 16384,
+      "effective_context_limit": 128000,
+      "effective_output_limit": 16384,
+      "context_safety_margin": 0.1,
+      "recovery_policy": "agent-docs",
+      "escalation_candidates": ["agent-build with documentation-only permissions"],
+      "qualification_status": "NOT_VERIFIED",
+      "evidence_references": []
+    }
+  }
+}

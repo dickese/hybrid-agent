@@ -1,0 +1,173 @@
+{
+  "schema_version": 1,
+  "description": "Shared recovery engine configuration with per-agent policies. All six agents use a common implementation with configurable per-agent parameters.",
+  "global_settings": {
+    "backoff_schedule_seconds": [2, 5, 15],
+    "respect_retry_after": true,
+    "max_task_recovery_deadline_seconds": 1800,
+    "persist_retry_counters_across_restarts": true,
+    "reset_total_recovery_on_route_switch": false,
+    "prevent_retry_multiplication": true,
+    "separate_infrastructure_from_implementation_recovery": true
+  },
+  "per_agent_policies": {
+    "agent-fast": {
+      "consecutive_retries": 2,
+      "total_recovery_retries_per_task": 3,
+      "retryable_categories": ["transient", "network_transient", "gateway_transient", "rate_limited"],
+      "non_retryable_categories": ["auth_failure", "permission_denied", "model_not_found", "request_schema_incompatible", "token_limit_mismatch", "context_overflow", "tool_execution_failed", "session_not_found", "unknown_execution_state", "no_compatible_route", "retry_exhausted"],
+      "quarantine_on_persistent_failures": true,
+      "circuit_breaker_threshold": 5,
+      "circuit_breaker_cooldown_seconds": 600
+    },
+    "agent-build": {
+      "consecutive_retries": 3,
+      "total_recovery_retries_per_task": 5,
+      "retryable_categories": ["transient", "network_transient", "gateway_transient", "rate_limited", "quota_exhausted"],
+      "non_retryable_categories": ["auth_failure", "permission_denied", "model_not_found", "request_schema_incompatible", "token_limit_mismatch", "context_overflow", "tool_execution_failed", "session_not_found", "unknown_execution_state", "no_compatible_route", "retry_exhausted"],
+      "quarantine_on_persistent_failures": true,
+      "circuit_breaker_threshold": 5,
+      "circuit_breaker_cooldown_seconds": 600
+    },
+    "agent-heavy": {
+      "consecutive_retries": 2,
+      "total_recovery_retries_per_task": 4,
+      "retryable_categories": ["transient", "network_transient", "gateway_transient", "rate_limited"],
+      "non_retryable_categories": ["auth_failure", "permission_denied", "model_not_found", "request_schema_incompatible", "token_limit_mismatch", "context_overflow", "tool_execution_failed", "session_not_found", "unknown_execution_state", "no_compatible_route", "retry_exhausted"],
+      "quarantine_on_persistent_failures": true,
+      "circuit_breaker_threshold": 3,
+      "circuit_breaker_cooldown_seconds": 900
+    },
+    "agent-review": {
+      "consecutive_retries": 2,
+      "total_recovery_retries_per_task": 3,
+      "retryable_categories": ["transient", "network_transient", "gateway_transient", "rate_limited"],
+      "non_retryable_categories": ["auth_failure", "permission_denied", "model_not_found", "request_schema_incompatible", "token_limit_mismatch", "context_overflow", "tool_execution_failed", "session_not_found", "unknown_execution_state", "no_compatible_route", "retry_exhausted"],
+      "quarantine_on_persistent_failures": true,
+      "circuit_breaker_threshold": 5,
+      "circuit_breaker_cooldown_seconds": 600
+    },
+    "agent-vision": {
+      "consecutive_retries": 2,
+      "total_recovery_retries_per_task": 3,
+      "retryable_categories": ["transient", "network_transient", "gateway_transient", "rate_limited"],
+      "non_retryable_categories": ["auth_failure", "permission_denied", "model_not_found", "request_schema_incompatible", "token_limit_mismatch", "context_overflow", "tool_execution_failed", "session_not_found", "unknown_execution_state", "no_compatible_route", "retry_exhausted"],
+      "quarantine_on_persistent_failures": true,
+      "circuit_breaker_threshold": 3,
+      "circuit_breaker_cooldown_seconds": 600,
+      "vision_fallback_forbidden": true
+    },
+    "agent-docs": {
+      "consecutive_retries": 2,
+      "total_recovery_retries_per_task": 3,
+      "retryable_categories": ["transient", "network_transient", "gateway_transient", "rate_limited"],
+      "non_retryable_categories": ["auth_failure", "permission_denied", "model_not_found", "request_schema_incompatible", "token_limit_mismatch", "context_overflow", "tool_execution_failed", "session_not_found", "unknown_execution_state", "no_compatible_route", "retry_exhausted"],
+      "quarantine_on_persistent_failures": true,
+      "circuit_breaker_threshold": 5,
+      "circuit_breaker_cooldown_seconds": 600
+    }
+  },
+  "failure_classification": {
+    "supported_codes": [
+      "STREAM_INVALID",
+      "STREAM_INCOMPLETE",
+      "INVALID_PROVIDER_OUTPUT",
+      "NETWORK_TRANSIENT",
+      "GATEWAY_TRANSIENT",
+      "RATE_LIMITED",
+      "QUOTA_EXHAUSTED",
+      "MODEL_NOT_FOUND",
+      "REQUEST_SCHEMA_INCOMPATIBLE",
+      "TOKEN_LIMIT_MISMATCH",
+      "CONTEXT_OVERFLOW",
+      "TOOL_EXECUTION_FAILED",
+      "AUTH_FAILURE",
+      "PERMISSION_DENIED",
+      "SESSION_NOT_FOUND",
+      "UNKNOWN_EXECUTION_STATE",
+      "NO_COMPATIBLE_ROUTE",
+      "RETRY_EXHAUSTED"
+    ],
+    "explicit_detection": {
+      "invalid_9router_stream_event": "Invalid 9router/openai-compatible-chat stream event",
+      "upstream_429_quota_exhaustion": "Upstream 429 quota exhaustion",
+      "cached_quota_blocks": "Cached quota blocks",
+      "persistent_upstream_404": "Persistent upstream 404 errors",
+      "incompatible_message_schemas": "Incompatible message schemas",
+      "incompatible_output_token_limits": "Incompatible output token limits",
+      "router_success_no_stream_completion": "Router-level success without established client-side stream completion"
+    },
+    "classification_rules": {
+      "do_not_classify_every_503_as_transient": true,
+      "do_not_treat_router_success_as_proof": true,
+      "require_terminal_event_and_scope_ok": true
+    }
+  },
+  "recovery_procedure": {
+    "steps": [
+      "Confirm previous invocation is no longer active",
+      "Acquire appropriate single-writer lock",
+      "Read persistent checkpoint",
+      "Reconcile actual filesystem state and tool execution evidence",
+      "Identify completed and incomplete operations",
+      "Validate route health and remaining recovery budget",
+      "Resume exact existing session when safe and compatible",
+      "Continue only the remaining task scope"
+    ],
+    "constraints": [
+      "Never blindly replay potentially non-idempotent tool operations",
+      "Never retry authentication or permission failures automatically",
+      "Use supported compaction or checkpoint-based session rotation if context budget exceeded",
+      "Preserve task constraints, verified progress, and session lineage",
+      "Return BLOCKED if execution state cannot be safely reconciled"
+    ]
+  },
+  "route_health_tracking": {
+    "enabled": true,
+    "tracked_fields": [
+      "logical_agent",
+      "requested_combo_route",
+      "actual_upstream_model_when_available",
+      "qualification_status",
+      "consecutive_failures",
+      "last_failure_classification",
+      "cooldown_until",
+      "quota_reset_time",
+      "sanitized_evidence"
+    ],
+    "quarantine_rules": {
+      "persistent_schema_failures": true,
+      "model_availability_failures": true,
+      "token_limit_failures": true,
+      "streaming_failures_circuit_breaker": true
+    },
+    "upstream_identity": {
+      "track_at_combo_level_when_individual_unknown": true,
+      "do_not_claim_individual_isolation_when_combo_only": true
+    }
+  },
+  "escalation_policy": {
+    "default_recommendations": {
+      "agent-fast": "agent-build",
+      "agent-build": "agent-heavy",
+      "agent-heavy": "Codex Orchestrator",
+      "agent-review": "Native Codex Reviewer",
+      "agent-vision": "approved vision-capable alternative or Codex",
+      "agent-docs": "agent-build with documentation-only permissions"
+    },
+    "constraints": [
+      "Escalation is a structured recommendation, not an automatic invocation",
+      "Do not expand permissions during escalation",
+      "Do not automatically transfer independent reviewer into implementation role",
+      "Prefer clean task session from verified checkpoint over transferring incompatible message history"
+    ]
+  },
+  "bootstrap_self_recovery": {
+    "enabled": true,
+    "reuse_foreground_recovery_runner": true,
+    "recovery_controller_outside_inference_turn": true,
+    "no_recursive_invocation_of_active_session": true,
+    "user_executable_command": "python -m bridge.cli recover --config config/bridge.local.json --apply",
+    "distinguish_from_operational_recovery": true
+  }
+}

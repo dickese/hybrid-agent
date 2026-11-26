@@ -1,0 +1,140 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "providers": {
+    "9router": {
+      "name": "9Router",
+      "env": ["NINE_ROUTER_KEY"],
+      "package": "@opencode/ai/providers/openai-compatible",
+      "settings": {
+        "baseURL": "http://127.0.0.1:20128/v1"
+      },
+      "models": {
+        "deepseek-v4.1-flash-free": {
+          "modelID": "ag/gemini-3.8-flash",
+          "name": "Gemini 3.8 Flash (9Router)",
+          "capabilities": {
+            "tools": true,
+            "input": ["text"],
+            "output": ["text"]
+          },
+          "limit": {
+            "context": 200000,
+            "output": 32000
+          }
+        },
+        "big-pickle": {
+          "modelID": "oc/big-pickle",
+          "name": "Big Pickle (9Router)",
+          "capabilities": {
+            "tools": true,
+            "input": ["text"],
+            "output": ["text"]
+          },
+          "limit": {
+            "context": 200000,
+            "output": 32000
+          }
+        },
+        "glm-5": {
+          "modelID": "ollama/glm-5",
+          "name": "GLM-5 (9Router/Ollama)",
+          "capabilities": {
+            "tools": true,
+            "input": ["text"],
+            "output": ["text"]
+          },
+          "limit": {
+            "context": 200000,
+            "output": 128000
+          }
+        },
+        "agent-fast": {
+          "modelID": "agent-fast",
+          "name": "Agent Fast (9Router Combo)",
+          "capabilities": {
+            "tools": false,
+            "input": ["text", "image", "audio", "video"],
+            "output": ["text"],
+            "reasoning": true
+          },
+          "limit": {
+            "context": 128000,
+            "output": 8192
+          }
+        },
+        "agent-build": {
+          "modelID": "agent-build",
+          "name": "Agent Build (9Router Combo)",
+          "capabilities": {
+            "tools": true,
+            "input": ["text", "image"],
+            "output": ["text"],
+            "reasoning": true
+          },
+          "limit": {
+            "context": 128000,
+            "output": 16384
+          }
+        },
+        "agent-heavy": {
+          "modelID": "agent-heavy",
+          "name": "Agent Heavy (9Router Combo)",
+          "capabilities": {
+            "tools": true,
+            "input": ["text", "image", "audio", "video", "pdf"],
+            "output": ["text"],
+            "reasoning": true,
+            "search": true
+          },
+          "limit": {
+            "context": 128000,
+            "output": 16384
+          }
+        },
+        "agent-review": {
+          "modelID": "agent-review",
+          "name": "Agent Review (9Router Combo)",
+          "capabilities": {
+            "tools": true,
+            "input": ["text"],
+            "output": ["text"],
+            "reasoning": true
+          },
+          "limit": {
+            "context": 128000,
+            "output": 8192
+          }
+        },
+        "agent-vision": {
+          "modelID": "agent-vision",
+          "name": "Agent Vision (9Router Combo)",
+          "capabilities": {
+            "tools": true,
+            "input": ["text", "image", "audio", "video"],
+            "output": ["text"],
+            "reasoning": true
+          },
+          "limit": {
+            "context": 64000,
+            "output": 8192
+          }
+        },
+        "agent-docs": {
+          "modelID": "agent-docs",
+          "name": "Agent Docs (9Router Combo)",
+          "capabilities": {
+            "tools": false,
+            "input": ["text", "image", "audio", "video"],
+            "output": ["text"],
+            "reasoning": true,
+            "search": true
+          },
+          "limit": {
+            "context": 128000,
+            "output": 16384
+          }
+        }
+      }
+    }
+  }
+}

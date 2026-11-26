@@ -1,0 +1,74 @@
+{
+  "schema_version": 1,
+  "opencode_executable": "C:/path/to/opencode.exe",
+  "opencode_config": "D:/tools/hybrid-agent/opencode.json",
+  "opencode_config_dir": "D:/tools/hybrid-agent/.opencode",
+  "runtime_root": "D:/tools/hybrid-agent/.runtime",
+  "credential_file": "D:/tools/hybrid-agent/.runtime/secrets/9router.key",
+  "credential_env": "NINE_ROUTER_KEY",
+  "workspaces": {
+    "demo": "D:/tools/hybrid-agent/.runtime/fixtures/demo-repo"
+  },
+  "profiles": {
+    "agent-fast": {
+      "agent": "bridge-fast",
+      "model": "9router/agent-fast",
+      "access": "write"
+    },
+    "agent-build": {
+      "agent": "bridge-build",
+      "model": "9router/agent-build",
+      "access": "write"
+    },
+    "agent-heavy": {
+      "agent": "bridge-heavy",
+      "model": "9router/agent-heavy",
+      "access": "write"
+    },
+    "agent-review": {
+      "agent": "bridge-review",
+      "model": "9router/agent-review",
+      "access": "read"
+    },
+    "agent-vision": {
+      "agent": "bridge-vision",
+      "model": "9router/agent-vision",
+      "access": "write"
+    },
+    "agent-docs": {
+      "agent": "bridge-docs",
+      "model": "9router/agent-docs",
+      "access": "write"
+    },
+    "explorer": {
+      "agent": "bridge-explorer",
+      "model": "9router/deepseek-v4.1-flash-free",
+      "access": "read"
+    },
+    "coder": {
+      "agent": "bridge-coder",
+      "model": "9router/deepseek-v4.1-flash-free",
+      "access": "write"
+    }
+  },
+  "approved_models": [
+    "9router/deepseek-v4.1-flash-free",
+    "9router/big-pickle",
+    "9router/glm-5",
+    "9router/agent-fast",
+    "9router/agent-build",
+    "9router/agent-heavy",
+    "9router/agent-review",
+    "9router/agent-vision",
+    "9router/agent-docs"
+  ],
+  "worker": {
+    "type": "opencode"
+  },
+  "timeout_seconds": 300,
+  "max_timeout_seconds": 900,
+  "max_summary_chars": 2000,
+  "max_prompt_chars": 12000,
+  "lock_timeout_seconds": 5,
+  "max_runs_per_task": 4
+}

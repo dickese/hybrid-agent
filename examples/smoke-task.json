@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "task_id": "A2-LIVE-001",
+  "workspace_id": "demo",
+  "profile": "coder",
+  "expected_branch": "master",
+  "objective": "Fix add.py so it implements addition and the existing fixture test passes.",
+  "references": ["add.py", "test_add.py"],
+  "allowed_paths": ["add.py"],
+  "acceptance_criteria": [
+    "python -B test_add.py exits 0",
+    "test_add.py is unchanged",
+    "only add.py is modified"
+  ],
+  "timeout_seconds": 300
+}

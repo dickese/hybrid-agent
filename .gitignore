@@ -1,0 +1,8 @@
+# Local-only artifacts
+.runtime/
+config/bridge.local.json
+config/bridge.test.json
+handoff/evidence/*.raw
+__pycache__/
+*.py[cod]
+.pytest_cache/

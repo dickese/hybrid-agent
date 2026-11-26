@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "description": "Task routing policy mapping task categories to logical agents. Deterministic routing based on task characteristics.",
+  "default_routing": {
+    "small_automation_and_preflight": "agent-fast",
+    "general_implementation": "agent-build",
+    "complex_engineering": "agent-heavy",
+    "independent_review": "agent-review",
+    "image_and_visual_analysis": "agent-vision",
+    "documentation_and_summarization": "agent-docs"
+  },
+  "routing_rules": [
+    {
+      "condition": "task_category == 'preflight' or task_category == 'environment_setup' or task_category == 'small_script' or task_category == 'log_analysis' or task_category == 'test_execution' or task_category == 'lightweight_troubleshooting' or task_category == 'small_automation'",
+      "agent": "agent-fast",
+      "priority": 10
+    },
+    {
+      "condition": "task_category == 'backend_development' or task_category == 'frontend_development' or task_category == 'feature_implementation' or task_category == 'bug_fix' or task_category == 'refactoring' or task_category == 'test_creation' or task_category == 'cli_tool_development' or task_category == 'automation_implementation'",
+      "agent": "agent-build",
+      "priority": 20
+    },
+    {
+      "condition": "task_category == 'complex_implementation' or task_category == 'architecture_analysis' or task_category == 'multi_module_debugging' or task_category == 'complex_business_logic' or task_category == 'concurrency' or task_category == 'database_migration' or task_category == 'complex_state_management'",
+      "agent": "agent-heavy",
+      "priority": 30
+    },
+    {
+      "condition": "task_category == 'code_review' or task_category == 'regression_analysis' or task_category == 'spec_compliance' or task_category == 'test_coverage_analysis' or task_category == 'defect_identification' or task_category == 'security_review'",
+      "agent": "agent-review",
+      "priority": 40
+    },
+    {
+      "condition": "task_category == 'screenshot_analysis' or task_category == 'ui_ux_review' or task_category == 'visual_regression' or task_category == 'wireframe_interpretation' or task_category == 'design_comparison' or task_category == 'image_based_requirements'",
+      "agent": "agent-vision",
+      "priority": 50
+    },
+    {
+      "condition": "task_category == 'runbook' or task_category == 'technical_specification' or task_category == 'business_documentation' or task_category == 'implementation_artifact' or task_category == 'handoff_document' or task_category == 'context_summarization' or task_category == 'checkpoint_summary'",
+      "agent": "agent-docs",
+      "priority": 60
+    }
+  ],
+  "explicit_override_allowed": true,
+  "capability_checks": {
+    "agent-fast": ["text", "reasoning"],
+    "agent-build": ["text", "image", "tools", "reasoning"],
+    "agent-heavy": ["text", "image", "audio", "video", "pdf", "tools", "reasoning", "search"],
+    "agent-review": ["text", "tools", "reasoning"],
+    "agent-vision": ["text", "image", "audio", "video", "tools", "reasoning"],
+    "agent-docs": ["text", "image", "audio", "video", "reasoning", "search"]
+  },
+  "permission_requirements": {
+    "agent-fast": "write",
+    "agent-build": "write",
+    "agent-heavy": "write",
+    "agent-review": "read_only",
+    "agent-vision": "write",
+    "agent-docs": "write_docs_only"
+  },
+  "route_health_checks": {
+    "enabled": true,
+    "check_on_routing": true,
+    "consecutive_failures_threshold": 3,
+    "cooldown_seconds": 300
+  }
+}
