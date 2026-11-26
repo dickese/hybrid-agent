@@ -24,6 +24,7 @@ _NON_TERMINAL_REASONS = {"error", "aborted", "cancelled", "canceled", "max_turns
 class FailureCode:
     STREAM_INVALID = "STREAM_INVALID"
     STREAM_INCOMPLETE = "STREAM_INCOMPLETE"
+    INVALID_9ROUTER_STREAM_EVENT = "INVALID_9ROUTER_STREAM_EVENT"
     NETWORK_TRANSIENT = "NETWORK_TRANSIENT"
     GATEWAY_TRANSIENT = "GATEWAY_TRANSIENT"
     RATE_LIMITED = "RATE_LIMITED"
@@ -314,6 +315,11 @@ _SESSION_ERROR_RE = re.compile(
     r"(?i)(session not found|session expired|invalid session|session_id.*not found|no such session)"
 )
 
+# Pattern to detect Invalid 9router/openai-compatible-chat stream event
+_INVALID_9ROUTER_STREAM_RE = re.compile(
+    r"(?i)(invalid 9router|openai.compatible.chat stream event|invalid stream event|malformed stream|stream protocol error)"
+)
+
 # Pattern to detect when model is generating text ABOUT errors (not actual errors)
 _EXAMPLE_ERROR_RE = re.compile(
     r"(?i)(example|sample|demonstrat|illustrat|show.*error|error.*example|for instance|such as.*error)"
@@ -352,6 +358,8 @@ def _classify_from_text(text: str) -> tuple[str, str, bool] | None:
         return FailureCode.TOOL_EXECUTION_FAILED, "tool", False
     if _SESSION_ERROR_RE.search(text):
         return FailureCode.SESSION_NOT_FOUND, "session", False
+    if _INVALID_9ROUTER_STREAM_RE.search(text):
+        return FailureCode.INVALID_9ROUTER_STREAM_EVENT, "protocol", False
 
     return None
 

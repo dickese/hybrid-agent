@@ -303,8 +303,29 @@ class AutoRecoveryTests(unittest.TestCase):
                     "model": "9router/agent-fast",
                     "access": "write",
                 },
+                "agent-review": {
+                    "agent": "bridge-review",
+                    "model": "9router/agent-review",
+                    "access": "read",
+                },
+                "agent-vision": {
+                    "agent": "bridge-vision",
+                    "model": "9router/agent-vision",
+                    "access": "read",
+                },
+                "agent-docs": {
+                    "agent": "bridge-docs",
+                    "model": "9router/agent-docs",
+                    "access": "write",
+                },
             },
-            "approved_models": ["9router/agent-build", "9router/agent-fast"],
+            "approved_models": [
+                "9router/agent-build",
+                "9router/agent-fast",
+                "9router/agent-review",
+                "9router/agent-vision",
+                "9router/agent-docs",
+            ],
             "timeout_seconds": 300,
             "max_timeout_seconds": 900,
         }

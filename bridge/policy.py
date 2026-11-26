@@ -90,7 +90,11 @@ def validate_permission_policy(
     config: BridgeConfig,
     profile: Profile,
 ) -> bool:
-    """Validate that the profile's access level satisfies the agent's permission policy."""
+    """Validate that the profile's access level satisfies the agent's permission policy.
+    
+    Enforces the effective agent permission policy independently from the original profile access.
+    Read-only agents must use genuinely read-only execution profiles.
+    """
     agent_registry = config.agent_registry
     routing_policy = config.routing_policy
     if not routing_policy:
@@ -100,17 +104,20 @@ def validate_permission_policy(
     if not entry:
         return True
 
-    required_permission = routing_policy.permission_requirements.get(agent_id, "write")
+    # Use the agent's own permission_policy from the registry (effective policy)
+    required_permission = entry.permission_policy
     profile_access = profile.access
 
     # Permission satisfaction matrix:
     # - Profile "read" satisfies agent "read_only" only
     # - Profile "write" satisfies agent "write" and "write_docs_only"
-    # - Agent "read_only" requires profile "read" or "write"
+    # - Agent "read_only" requires profile "read" (not "write" - write profile is not read-only)
     # - Agent "write" requires profile "write"
     # - Agent "write_docs_only" requires profile "write" (enforced in scope evaluation)
     if required_permission == "read_only":
-        return profile_access in {"read", "write"}
+        # Read-only agents must use read-only profile (access="read")
+        # A write profile does NOT satisfy read_only policy
+        return profile_access == "read"
     elif required_permission == "write":
         return profile_access == "write"
     elif required_permission == "write_docs_only":

@@ -33,7 +33,7 @@
     "agent-vision": {
       "agent": "bridge-vision",
       "model": "9router/agent-vision",
-      "access": "write"
+      "access": "read"
     },
     "agent-docs": {
       "agent": "bridge-docs",

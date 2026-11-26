@@ -88,6 +88,16 @@ def write_fake_config(
     max_runs_per_task: int = 4,
     approved_models: list[str] | None = None,
 ) -> Path:
+    # Copy policy files from main config directory
+    import shutil
+    root.mkdir(parents=True, exist_ok=True)
+    policy_dir = FRAMEWORK_ROOT / "config"
+    for policy_file in ["agent-registry.json", "routing-policy.json", "recovery-policy.json"]:
+        src = policy_dir / policy_file
+        dst = root / policy_file
+        if src.exists():
+            shutil.copy2(src, dst)
+    
     config = {
         "schema_version": 1,
         "runtime_root": str(runtime_root or (root / ".runtime")),
@@ -103,8 +113,40 @@ def write_fake_config(
                 "model": "test/model",
                 "access": "write",
             },
+            "agent-build": {
+                "agent": "bridge-build",
+                "model": "9router/agent-build",
+                "access": "write",
+            },
+            "agent-fast": {
+                "agent": "bridge-fast",
+                "model": "9router/agent-fast",
+                "access": "write",
+            },
+            "agent-review": {
+                "agent": "bridge-review",
+                "model": "9router/agent-review",
+                "access": "read",
+            },
+            "agent-vision": {
+                "agent": "bridge-vision",
+                "model": "9router/agent-vision",
+                "access": "read",
+            },
+            "agent-docs": {
+                "agent": "bridge-docs",
+                "model": "9router/agent-docs",
+                "access": "write",
+            },
         },
-        "approved_models": approved_models or ["test/model"],
+        "approved_models": approved_models or [
+            "test/model",
+            "9router/agent-build",
+            "9router/agent-fast",
+            "9router/agent-review",
+            "9router/agent-vision",
+            "9router/agent-docs",
+        ],
         "worker": {
             "type": "fake",
             "executable": str(FAKE_WORKER),

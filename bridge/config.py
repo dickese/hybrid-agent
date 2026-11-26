@@ -117,9 +117,9 @@ class BridgeConfig:
     max_prompt_chars: int
     lock_timeout_seconds: int
     max_runs_per_task: int
+    routing_policy: RoutingPolicy
+    recovery_policy: RecoveryPolicy
     agent_registry: dict[str, AgentRegistryEntry] = field(default_factory=dict)
-    routing_policy: RoutingPolicy | None = None
-    recovery_policy: RecoveryPolicy | None = None
 
     def workspace(self, workspace_id: str) -> str:
         try:
@@ -177,40 +177,26 @@ def load_config(path: str | Path) -> BridgeConfig:
         data = json.loads(source.read_text(encoding="utf-8-sig"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise ConfigError("Config is not readable JSON", error=str(exc)) from exc
-    config = parse_config(data, source_path=str(source))
     config_dir = source.parent
-    # Load optional policy files
+    # Load mandatory policy files
     agent_registry = _load_agent_registry(config_dir)
     routing_policy = _load_routing_policy(config_dir)
     recovery_policy = _load_recovery_policy(config_dir)
-    # Reconstruct config with policies (dataclass is frozen, so create new instance)
-    return BridgeConfig(
-        source_path=config.source_path,
-        opencode_executable=config.opencode_executable,
-        opencode_config=config.opencode_config,
-        opencode_config_dir=config.opencode_config_dir,
-        runtime_root=config.runtime_root,
-        credential_file=config.credential_file,
-        credential_env=config.credential_env,
-        workspaces=config.workspaces,
-        profiles=config.profiles,
-        approved_models=config.approved_models,
-        worker_type=config.worker_type,
-        fake_worker_executable=config.fake_worker_executable,
-        fake_python_executable=config.fake_python_executable,
-        timeout_seconds=config.timeout_seconds,
-        max_timeout_seconds=config.max_timeout_seconds,
-        max_summary_chars=config.max_summary_chars,
-        max_prompt_chars=config.max_prompt_chars,
-        lock_timeout_seconds=config.lock_timeout_seconds,
-        max_runs_per_task=config.max_runs_per_task,
-        agent_registry=agent_registry,
+    # Parse config with loaded policies
+    return parse_config(
+        data,
+        source_path=str(source),
         routing_policy=routing_policy,
         recovery_policy=recovery_policy,
     )
 
 
-def parse_config(data: Any, source_path: str | None = None) -> BridgeConfig:
+def parse_config(
+    data: Any,
+    source_path: str | None = None,
+    routing_policy: RoutingPolicy | None = None,
+    recovery_policy: RecoveryPolicy | None = None,
+) -> BridgeConfig:
     if not isinstance(data, dict):
         raise ConfigError("Config must be a JSON object")
     unknown = sorted(set(data) - _ALLOWED_KEYS)
@@ -385,23 +371,57 @@ def parse_config(data: Any, source_path: str | None = None) -> BridgeConfig:
         max_prompt_chars=max_prompt_chars,
         lock_timeout_seconds=lock_timeout_seconds,
         max_runs_per_task=max_runs_per_task,
+        routing_policy=routing_policy or RoutingPolicy(
+            default_routing={},
+            routing_rules=(),
+            explicit_override_allowed=True,
+            capability_checks={},
+            permission_requirements={},
+            route_health_checks={},
+        ),
+        recovery_policy=recovery_policy or RecoveryPolicy(
+            global_settings={},
+            per_agent_policies={},
+            failure_classification={},
+            recovery_procedure={},
+            route_health_tracking={},
+            escalation_policy={},
+            bootstrap_self_recovery={},
+        ),
     )
 
 
 def _load_agent_registry(config_dir: Path) -> dict[str, AgentRegistryEntry]:
-    """Load agent registry from config/agent-registry.json."""
+    """Load agent registry from config/agent-registry.json.
+    
+    Raises ConfigError if the registry file is missing or invalid.
+    Operational mode requires a valid agent registry.
+    """
     registry_path = config_dir / "agent-registry.json"
     if not registry_path.is_file():
-        return {}
+        raise ConfigError("Mandatory agent-registry.json is missing", path=str(registry_path))
     try:
         data = json.loads(registry_path.read_text(encoding="utf-8-sig"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
-        return {}
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ConfigError("agent-registry.json is not readable JSON", error=str(exc)) from exc
+    
+    if not isinstance(data, dict):
+        raise ConfigError("agent-registry.json must be a JSON object")
+    
     agents_data = data.get("agents", {})
+    if not isinstance(agents_data, dict) or not agents_data:
+        raise ConfigError("agent-registry.json must contain a non-empty 'agents' object")
+    
     result: dict[str, AgentRegistryEntry] = {}
     for agent_id, agent_data in agents_data.items():
         if not isinstance(agent_data, dict):
-            continue
+            raise ConfigError(f"Agent entry '{agent_id}' must be an object")
+        # Validate required fields
+        required_fields = ["id", "model_route", "execution_profile", "permission_policy"]
+        for field in required_fields:
+            if field not in agent_data or not agent_data[field]:
+                raise ConfigError(f"Agent '{agent_id}' missing required field: {field}")
+        
         result[agent_id] = AgentRegistryEntry(
             id=agent_data.get("id", agent_id),
             description=agent_data.get("description", ""),
@@ -426,15 +446,29 @@ def _load_agent_registry(config_dir: Path) -> dict[str, AgentRegistryEntry]:
     return result
 
 
-def _load_routing_policy(config_dir: Path) -> RoutingPolicy | None:
-    """Load routing policy from config/routing-policy.json."""
+def _load_routing_policy(config_dir: Path) -> RoutingPolicy:
+    """Load routing policy from config/routing-policy.json.
+    
+    Raises ConfigError if the policy file is missing or invalid.
+    Operational mode requires a valid routing policy.
+    """
     policy_path = config_dir / "routing-policy.json"
     if not policy_path.is_file():
-        return None
+        raise ConfigError("Mandatory routing-policy.json is missing", path=str(policy_path))
     try:
         data = json.loads(policy_path.read_text(encoding="utf-8-sig"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
-        return None
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ConfigError("routing-policy.json is not readable JSON", error=str(exc)) from exc
+    
+    if not isinstance(data, dict):
+        raise ConfigError("routing-policy.json must be a JSON object")
+    
+    # Validate required fields
+    required_fields = ["default_routing", "routing_rules", "permission_requirements"]
+    for field in required_fields:
+        if field not in data:
+            raise ConfigError(f"routing-policy.json missing required field: {field}")
+    
     return RoutingPolicy(
         default_routing=data.get("default_routing", {}),
         routing_rules=tuple(data.get("routing_rules", [])),
@@ -447,15 +481,29 @@ def _load_routing_policy(config_dir: Path) -> RoutingPolicy | None:
     )
 
 
-def _load_recovery_policy(config_dir: Path) -> RecoveryPolicy | None:
-    """Load recovery policy from config/recovery-policy.json."""
+def _load_recovery_policy(config_dir: Path) -> RecoveryPolicy:
+    """Load recovery policy from config/recovery-policy.json.
+    
+    Raises ConfigError if the policy file is missing or invalid.
+    Operational mode requires a valid recovery policy.
+    """
     policy_path = config_dir / "recovery-policy.json"
     if not policy_path.is_file():
-        return None
+        raise ConfigError("Mandatory recovery-policy.json is missing", path=str(policy_path))
     try:
         data = json.loads(policy_path.read_text(encoding="utf-8-sig"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
-        return None
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ConfigError("recovery-policy.json is not readable JSON", error=str(exc)) from exc
+    
+    if not isinstance(data, dict):
+        raise ConfigError("recovery-policy.json must be a JSON object")
+    
+    # Validate required fields
+    required_fields = ["global_settings", "per_agent_policies", "failure_classification"]
+    for field in required_fields:
+        if field not in data:
+            raise ConfigError(f"recovery-policy.json missing required field: {field}")
+    
     return RecoveryPolicy(
         global_settings=data.get("global_settings", {}),
         per_agent_policies=data.get("per_agent_policies", {}),

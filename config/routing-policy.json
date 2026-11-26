@@ -55,7 +55,7 @@
     "agent-build": "write",
     "agent-heavy": "write",
     "agent-review": "read_only",
-    "agent-vision": "write",
+    "agent-vision": "read_only",
     "agent-docs": "write_docs_only"
   },
   "route_health_checks": {

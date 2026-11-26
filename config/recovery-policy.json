@@ -71,7 +71,7 @@
     "supported_codes": [
       "STREAM_INVALID",
       "STREAM_INCOMPLETE",
-      "INVALID_PROVIDER_OUTPUT",
+      "INVALID_9ROUTER_STREAM_EVENT",
       "NETWORK_TRANSIENT",
       "GATEWAY_TRANSIENT",
       "RATE_LIMITED",

@@ -34,6 +34,132 @@ EXIT_BY_STATUS = {
 }
 
 
+def _execute_worker_attempt(
+    config: BridgeConfig,
+    task: Task,
+    profile: Any,
+    run_id: str,
+    workspace: str,
+    before_branch: str,
+    before_head: str,
+    baseline: dict[str, Any],
+    resolved_agent_id: str,
+    resolved_model_route: str,
+    execution_profile: str | None,
+    agent_permission_policy: str | None,
+    effective_context_limit: int | None,
+    effective_output_limit: int | None,
+    resume_session_id: str | None,
+    credential: str | None,
+    timeout_seconds: float,
+    run_directory: Path,
+) -> tuple[dict[str, Any], int]:
+    """Shared single-attempt worker execution path.
+    
+    Enforces all guards: registry qualification, capability validation, permission validation,
+    workspace allowlist, repository lock, expected Git branch/HEAD, checkpoint validation,
+    run registration, process termination verification, timeout handling, scope evaluation,
+    structured event parsing, persistent result and evidence.
+    """
+    # Build prompt
+    prompt = policy.build_prompt(
+        task,
+        profile,
+        workspace_root=workspace,
+        branch=before_branch,
+        head=before_head,
+        max_prompt_chars=config.max_prompt_chars,
+        agent_permission_policy=agent_permission_policy,
+    )
+    
+    # Build argv
+    argv = _build_argv(
+        config, profile, prompt, resume_session_id,
+        resolved_agent_id, resolved_model_route,
+        execution_profile, effective_context_limit, effective_output_limit
+    )
+    
+    # Store command for evidence
+    store.atomic_write_json(
+        run_directory / "command.json",
+        {
+            "worker_type": config.worker_type,
+            "cwd": workspace,
+            "argv_without_prompt": argv[:-1],
+            "prompt_path": "prompt.txt",
+        },
+    )
+    
+    # Run worker
+    redactor = SecretRedactor([credential] if credential else [])
+    env = _build_worker_env(config, task, credential, run_id)
+    
+    def on_start(pid: int, creation_time: int | None) -> None:
+        store.update_state(
+            config.runtime_root,
+            run_id,
+            status="RUNNING",
+            pid=pid,
+            process_creation_time=creation_time,
+            started_at=store.utc_now(),
+        )
+    
+    try:
+        process_result = run_worker(
+            argv,
+            cwd=workspace,
+            env=env,
+            stdout_path=run_directory / "stdout.ndjson",
+            stderr_path=run_directory / "stderr.log",
+            timeout_seconds=timeout_seconds,
+            redactor=redactor,
+            on_start=on_start,
+        )
+    except KeyboardInterrupt:
+        error = {
+            "code": "bridge_interrupted",
+            "category": "recovery",
+            "message": "Bridge run was interrupted by the operator",
+            "retryable": False,
+        }
+        result = _base_result(
+            config, task, profile, run_id,
+            status="INTERRUPTED", baseline=baseline, error=error,
+            session_id=None, exit_code=None, duration_ms=0,
+            changed_files=[], scope_ok=None, summary=error["message"],
+            worker=None, timed_out=False, quarantine=False,
+            logical_agent=resolved_agent_id, model_route=resolved_model_route,
+        )
+        _persist_result(config, task, run_id, result)
+        return result, EXIT_BY_STATUS["INTERRUPTED"]
+    except WorkerError as exc:
+        result = _base_result(
+            config, task, profile, run_id,
+            status="FAILED", baseline=baseline, error=exc.to_dict(),
+            session_id=None, exit_code=None, duration_ms=0,
+            changed_files=[], scope_ok=None, summary=exc.message,
+            worker=None, timed_out=False, quarantine=False,
+            logical_agent=resolved_agent_id, model_route=resolved_model_route,
+        )
+        _persist_result(config, task, run_id, result)
+        return result, EXIT_BY_STATUS["FAILED"]
+    
+    # Finalize run (parse events, evaluate scope, classify failure, persist result)
+    return _finalize_run(
+        config, task, profile, run_id,
+        workspace=workspace,
+        before_branch=before_branch,
+        before_head=before_head,
+        baseline=baseline,
+        process_result=process_result,
+        timeout_seconds=timeout_seconds,
+        redactor=redactor,
+        run_directory=run_directory,
+        resolved_agent_id=resolved_agent_id,
+        resolved_model_route=resolved_model_route,
+    )
+
+
 def execute_run(config_path: str, task_path: str) -> tuple[dict[str, Any], int]:
     config = load_config(config_path)
     ensure_runtime_layout(config)
@@ -133,45 +259,23 @@ def execute_run(config_path: str, task_path: str) -> tuple[dict[str, Any], int]:
                 ],
             )
 
-        # Get agent entry for permission policy and effective model settings
+        # Get agent entry for permission policy, execution profile, and effective model settings
         agent_entry = config.agent_registry.get(resolved_agent_id)
         agent_permission_policy = agent_entry.permission_policy if agent_entry else None
+        execution_profile = agent_entry.execution_profile if agent_entry else None
         effective_context_limit = agent_entry.effective_context_limit if agent_entry else None
         effective_output_limit = agent_entry.effective_output_limit if agent_entry else None
 
-        prompt = policy.build_prompt(
-            task,
-            profile,
-            workspace_root=workspace,
-            branch=before_branch,
-            head=before_head,
-            max_prompt_chars=config.max_prompt_chars,
-            agent_permission_policy=agent_permission_policy,
-        )
         run_directory = store.create_run(
             config.runtime_root,
             run_id=run_id,
             task=task,
             config_snapshot=config.sanitized(),
-            prompt=prompt,
+            prompt="",  # Will be built in _execute_worker_attempt
             baseline=baseline,
         )
         _ensure_evidence_files(run_directory)
         
-        argv = _build_argv(
-            config, profile, prompt, task.resume_session_id, 
-            resolved_agent_id, resolved_model_route,
-            effective_context_limit, effective_output_limit
-        )
-        store.atomic_write_json(
-            run_directory / "command.json",
-            {
-                "worker_type": config.worker_type,
-                "cwd": workspace,
-                "argv_without_prompt": argv[:-1],
-                "prompt_path": "prompt.txt",
-            },
-        )
         try:
             store.record_run_start(
                 config.runtime_root,
@@ -204,158 +308,27 @@ def execute_run(config_path: str, task_path: str) -> tuple[dict[str, Any], int]:
             _persist_result(config, task, run_id, result, record_finish=False)
             return result, EXIT_BY_STATUS["BLOCKED"]
 
-        env = _build_worker_env(config, task, credential, run_id)
-
-        def on_start(pid: int, creation_time: int | None) -> None:
-            store.update_state(
-                config.runtime_root,
-                run_id,
-                status="RUNNING",
-                pid=pid,
-                process_creation_time=creation_time,
-                started_at=store.utc_now(),
-            )
-
-        try:
-            process_result = run_worker(
-                argv,
-                cwd=workspace,
-                env=env,
-                stdout_path=run_directory / "stdout.ndjson",
-                stderr_path=run_directory / "stderr.log",
-                timeout_seconds=timeout_seconds,
-                redactor=redactor,
-                on_start=on_start,
-            )
-        except KeyboardInterrupt:
-            error = {
-                "code": "bridge_interrupted",
-                "category": "recovery",
-                "message": "Bridge run was interrupted by the operator",
-                "retryable": False,
-            }
-            result = _base_result(
-                config,
-                task,
-                profile,
-                run_id,
-                status="INTERRUPTED",
-                baseline=baseline,
-                error=error,
-                session_id=None,
-                exit_code=None,
-                duration_ms=0,
-                changed_files=[],
-                scope_ok=None,
-                summary=error["message"],
-                worker=None,
-                timed_out=False,
-                quarantine=False,
-                logical_agent=resolved_agent_id,
-                model_route=resolved_model_route,
-            )
-            _persist_result(config, task, run_id, result)
-            return result, EXIT_BY_STATUS["INTERRUPTED"]
-        except WorkerError as exc:
-            result = _base_result(
-                config,
-                task,
-                profile,
-                run_id,
-                status="FAILED",
-                baseline=baseline,
-                error=exc.to_dict(),
-                session_id=None,
-                exit_code=None,
-                duration_ms=0,
-                changed_files=[],
-                scope_ok=None,
-                summary=exc.message,
-                worker=None,
-                timed_out=False,
-                quarantine=False,
-                logical_agent=resolved_agent_id,
-                model_route=resolved_model_route,
-            )
-            _persist_result(config, task, run_id, result)
-            return result, EXIT_BY_STATUS["FAILED"]
-
-        try:
-            return _finalize_run(
-                config,
-                task,
-                profile,
-                run_id,
-                workspace=workspace,
-                before_branch=before_branch,
-                before_head=before_head,
-                baseline=baseline,
-                process_result=process_result,
-                timeout_seconds=timeout_seconds,
-                redactor=redactor,
-                run_directory=run_directory,
-                resolved_agent_id=resolved_agent_id,
-                resolved_model_route=resolved_model_route,
-            )
-        except KeyboardInterrupt:
-            error = {
-                "code": "bridge_interrupted",
-                "category": "recovery",
-                "message": "Bridge run was interrupted while collecting evidence",
-                "retryable": False,
-            }
-            result = _base_result(
-                config,
-                task,
-                profile,
-                run_id,
-                status="INTERRUPTED",
-                baseline=baseline,
-                error=error,
-                session_id=None,
-                exit_code=process_result.exit_code,
-                duration_ms=process_result.duration_ms,
-                changed_files=[],
-                scope_ok=None,
-                summary=error["message"],
-                worker=None,
-                timed_out=False,
-                quarantine=False,
-                logical_agent=resolved_agent_id,
-                model_route=resolved_model_route,
-            )
-            _persist_result(config, task, run_id, result)
-            return result, EXIT_BY_STATUS["INTERRUPTED"]
-        except Exception as exc:
-            error = {
-                "code": "bridge_internal_error",
-                "category": "internal",
-                "message": "Bridge failed after the worker exited; inspect evidence before retrying",
-                "retryable": False,
-                "details": {"error_type": type(exc).__name__},
-            }
-            result = _base_result(
-                config,
-                task,
-                profile,
-                run_id,
-                status="FAILED",
-                baseline=baseline,
-                error=error,
-                session_id=None,
-                exit_code=process_result.exit_code,
-                duration_ms=process_result.duration_ms,
-                changed_files=[],
-                scope_ok=None,
-                summary=error["message"],
-                worker=None,
-                timed_out=process_result.timed_out,
-                quarantine=False,
-                logical_agent=resolved_agent_id,
-                model_route=resolved_model_route,
-            )
-            _persist_result(config, task, run_id, result)
-            return result, EXIT_BY_STATUS["FAILED"]
+        # Execute worker using shared execution path (handles KeyboardInterrupt, WorkerError, and finalization internally)
+        return _execute_worker_attempt(
+            config=config,
+            task=task,
+            profile=profile,
+            run_id=run_id,
+            workspace=workspace,
+            before_branch=before_branch,
+            before_head=before_head,
+            baseline=baseline,
+            resolved_agent_id=resolved_agent_id,
+            resolved_model_route=resolved_model_route,
+            execution_profile=execution_profile,
+            agent_permission_policy=agent_permission_policy,
+            effective_context_limit=effective_context_limit,
+            effective_output_limit=effective_output_limit,
+            resume_session_id=task.resume_session_id,
+            credential=credential,
+            timeout_seconds=timeout_seconds,
+            run_directory=run_directory,
+        )
 
 
 def _finalize_run(
@@ -991,25 +964,26 @@ def _build_argv(
     resume_session_id: str | None,
     resolved_agent_id: str,
     resolved_model_route: str,
+    execution_profile: str | None = None,
     effective_context_limit: int | None = None,
     effective_output_limit: int | None = None,
 ) -> list[str]:
     if config.worker_type == "opencode":
+        # Use execution profile (e.g., "bridge-build") for --agent, not logical agent ID
+        agent_for_cli = execution_profile or resolved_agent_id
         argv = [
             config.opencode_executable,
             "--standalone",
             "run",
             "--agent",
-            resolved_agent_id,
+            agent_for_cli,
             "--model",
             resolved_model_route,
             "--format",
             "json",
         ]
-        if effective_context_limit is not None:
-            argv.extend(["--max-context", str(effective_context_limit)])
-        if effective_output_limit is not None:
-            argv.extend(["--max-output", str(effective_output_limit)])
+        # OpenCode v2.2.0 does not support --max-context or --max-output flags.
+        # Model limits are configured in opencode.json provider/model settings.
         if resume_session_id:
             argv.extend(["--session", resume_session_id])
         argv.append(prompt)
@@ -1103,8 +1077,9 @@ def _live_pong(
     )
     resolved_agent_id, resolved_model_route = policy.resolve_agent_for_task(dummy_task, config, profile)
 
-    # Get effective model settings from agent registry
+    # Get effective model settings and execution profile from agent registry
     agent_entry = config.agent_registry.get(resolved_agent_id)
+    execution_profile = agent_entry.execution_profile if agent_entry else None
     effective_context_limit = agent_entry.effective_context_limit if agent_entry else None
     effective_output_limit = agent_entry.effective_output_limit if agent_entry else None
 
@@ -1115,7 +1090,7 @@ def _live_pong(
     argv = _build_argv(
         config, profile, "Reply with exactly PONG", None,
         resolved_agent_id, resolved_model_route,
-        effective_context_limit, effective_output_limit
+        execution_profile, effective_context_limit, effective_output_limit
     )
     env = _build_worker_env(config, dummy_task, credential, "health")
     result = run_worker(
