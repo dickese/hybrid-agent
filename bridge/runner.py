@@ -41,6 +41,37 @@ def execute_run(config_path: str, task_path: str) -> tuple[dict[str, Any], int]:
     if task.fake_scenario is not None and config.worker_type != "fake":
         raise TaskError("metadata.fake_scenario is only valid for the fake test worker")
     profile = config.profile(task.profile)
+
+    # Resolve logical agent and model route from routing policy
+    resolved_agent_id, resolved_model_route = policy.resolve_agent_for_task(task, config, profile)
+
+    # Validate agent capabilities
+    missing_capabilities = policy.validate_agent_capabilities(resolved_agent_id, config, profile)
+    if missing_capabilities:
+        raise PolicyError(
+            "Agent capabilities not satisfied by profile",
+            agent=resolved_agent_id,
+            missing_capabilities=missing_capabilities,
+        )
+
+    # Validate permission policy
+    if not policy.validate_permission_policy(resolved_agent_id, config, profile):
+        raise PolicyError(
+            "Profile access level does not satisfy agent permission policy",
+            agent=resolved_agent_id,
+            required=config.routing_policy.permission_requirements.get(resolved_agent_id) if config.routing_policy else "unknown",
+            actual=profile.access,
+        )
+
+    # Check route health / circuit breaker
+    circuit_open, cooldown_until = _check_circuit_breaker(config, resolved_agent_id)
+    if circuit_open:
+        raise PolicyError(
+            "Route circuit breaker is open; route is temporarily unavailable",
+            agent=resolved_agent_id,
+            cooldown_until=cooldown_until,
+        )
+
     if (
         task.timeout_seconds is not None
         and task.timeout_seconds > config.max_timeout_seconds
@@ -102,6 +133,12 @@ def execute_run(config_path: str, task_path: str) -> tuple[dict[str, Any], int]:
                 ],
             )
 
+        # Get agent entry for permission policy and effective model settings
+        agent_entry = config.agent_registry.get(resolved_agent_id)
+        agent_permission_policy = agent_entry.permission_policy if agent_entry else None
+        effective_context_limit = agent_entry.effective_context_limit if agent_entry else None
+        effective_output_limit = agent_entry.effective_output_limit if agent_entry else None
+
         prompt = policy.build_prompt(
             task,
             profile,
@@ -109,6 +146,7 @@ def execute_run(config_path: str, task_path: str) -> tuple[dict[str, Any], int]:
             branch=before_branch,
             head=before_head,
             max_prompt_chars=config.max_prompt_chars,
+            agent_permission_policy=agent_permission_policy,
         )
         run_directory = store.create_run(
             config.runtime_root,
@@ -119,7 +157,12 @@ def execute_run(config_path: str, task_path: str) -> tuple[dict[str, Any], int]:
             baseline=baseline,
         )
         _ensure_evidence_files(run_directory)
-        argv = _build_argv(config, profile, prompt, task.resume_session_id)
+        
+        argv = _build_argv(
+            config, profile, prompt, task.resume_session_id, 
+            resolved_agent_id, resolved_model_route,
+            effective_context_limit, effective_output_limit
+        )
         store.atomic_write_json(
             run_directory / "command.json",
             {
@@ -155,6 +198,8 @@ def execute_run(config_path: str, task_path: str) -> tuple[dict[str, Any], int]:
                 worker=None,
                 timed_out=False,
                 quarantine=False,
+                logical_agent=resolved_agent_id,
+                model_route=resolved_model_route,
             )
             _persist_result(config, task, run_id, result, record_finish=False)
             return result, EXIT_BY_STATUS["BLOCKED"]
@@ -206,6 +251,8 @@ def execute_run(config_path: str, task_path: str) -> tuple[dict[str, Any], int]:
                 worker=None,
                 timed_out=False,
                 quarantine=False,
+                logical_agent=resolved_agent_id,
+                model_route=resolved_model_route,
             )
             _persist_result(config, task, run_id, result)
             return result, EXIT_BY_STATUS["INTERRUPTED"]
@@ -227,6 +274,8 @@ def execute_run(config_path: str, task_path: str) -> tuple[dict[str, Any], int]:
                 worker=None,
                 timed_out=False,
                 quarantine=False,
+                logical_agent=resolved_agent_id,
+                model_route=resolved_model_route,
             )
             _persist_result(config, task, run_id, result)
             return result, EXIT_BY_STATUS["FAILED"]
@@ -245,6 +294,8 @@ def execute_run(config_path: str, task_path: str) -> tuple[dict[str, Any], int]:
                 timeout_seconds=timeout_seconds,
                 redactor=redactor,
                 run_directory=run_directory,
+                resolved_agent_id=resolved_agent_id,
+                resolved_model_route=resolved_model_route,
             )
         except KeyboardInterrupt:
             error = {
@@ -270,6 +321,8 @@ def execute_run(config_path: str, task_path: str) -> tuple[dict[str, Any], int]:
                 worker=None,
                 timed_out=False,
                 quarantine=False,
+                logical_agent=resolved_agent_id,
+                model_route=resolved_model_route,
             )
             _persist_result(config, task, run_id, result)
             return result, EXIT_BY_STATUS["INTERRUPTED"]
@@ -298,6 +351,8 @@ def execute_run(config_path: str, task_path: str) -> tuple[dict[str, Any], int]:
                 worker=None,
                 timed_out=process_result.timed_out,
                 quarantine=False,
+                logical_agent=resolved_agent_id,
+                model_route=resolved_model_route,
             )
             _persist_result(config, task, run_id, result)
             return result, EXIT_BY_STATUS["FAILED"]
@@ -317,6 +372,8 @@ def _finalize_run(
     timeout_seconds: float,
     redactor: SecretRedactor,
     run_directory: Path,
+    resolved_agent_id: str,
+    resolved_model_route: str,
 ) -> tuple[dict[str, Any], int]:
     outcome = parse_events(
         run_directory / "stdout.ndjson",
@@ -330,6 +387,9 @@ def _finalize_run(
         workspace, run_directory / "diff.patch", redactor=redactor
     )
     diff_text = gitutil.diff_text_for_scan(workspace)
+    # Get agent permission policy for write_docs_only enforcement
+    agent_entry = config.agent_registry.get(resolved_agent_id)
+    agent_permission_policy = agent_entry.permission_policy if agent_entry else None
     evaluation = policy.evaluate_scope(
         task,
         profile,
@@ -341,6 +401,7 @@ def _finalize_run(
         entries=after_entries,
         edit_tools_used=outcome.edit_tools_used,
         diff_text=diff_text,
+        agent_permission_policy=agent_permission_policy,
     )
 
     error: dict[str, Any] | None = None
@@ -418,6 +479,8 @@ def _finalize_run(
         worker=worker,
         timed_out=process_result.timed_out,
         quarantine=quarantine,
+        logical_agent=resolved_agent_id,
+        model_route=resolved_model_route,
     )
     result["policy"] = evaluation.to_dict()
     _persist_result(config, task, run_id, result)
@@ -527,6 +590,64 @@ def health(
                     "name": f"workspace:{workspace_id}",
                     "status": "FAIL",
                     "detail": exc.to_dict(),
+                }
+            )
+
+    # Route health checks
+    # route-health.json is in the state directory (sibling of runtime_root)
+    state_root = Path(config.runtime_root).parent / "state"
+    route_health_path = state_root / "route-health.json"
+    route_health_status = "PASS"
+    route_health_detail: dict[str, Any] = {}
+    if route_health_path.is_file() and config.recovery_policy:
+        try:
+            import json
+            health_data = json.loads(route_health_path.read_text(encoding="utf-8"))
+            routes = health_data.get("routes", {})
+            for agent_id, route_info in routes.items():
+                agent_policy = config.recovery_policy.per_agent_policies.get(agent_id)
+                if not agent_policy:
+                    continue
+                consecutive_failures = route_info.get("consecutive_failures", 0)
+                cooldown_until = route_info.get("cooldown_until")
+                threshold = agent_policy.get("circuit_breaker_threshold", 5)
+                
+                is_circuit_open = False
+                if consecutive_failures >= threshold:
+                    if cooldown_until:
+                        try:
+                            from datetime import datetime, timezone
+                            cooldown_time = datetime.fromisoformat(cooldown_until.replace("Z", "+00:00"))
+                            if datetime.now(timezone.utc) < cooldown_time:
+                                is_circuit_open = True
+                        except ValueError:
+                            pass
+                    else:
+                        is_circuit_open = True
+                
+                route_health_detail[agent_id] = {
+                    "consecutive_failures": consecutive_failures,
+                    "threshold": threshold,
+                    "cooldown_until": cooldown_until,
+                    "circuit_open": is_circuit_open,
+                    "last_failure": route_info.get("last_failure_classification"),
+                    "qualification_status": route_info.get("qualification_status", "NOT_VERIFIED"),
+                }
+                if is_circuit_open:
+                    route_health_status = "FAIL"
+            checks.append(
+                {
+                    "name": "route_health",
+                    "status": route_health_status,
+                    "detail": route_health_detail,
+                }
+            )
+        except (OSError, json.JSONDecodeError):
+            checks.append(
+                {
+                    "name": "route_health",
+                    "status": "WARN",
+                    "detail": "Could not read route health file",
                 }
             )
 
@@ -685,6 +806,8 @@ def _base_result(
     worker: dict[str, Any] | None,
     timed_out: bool,
     quarantine: bool,
+    logical_agent: str | None = None,
+    model_route: str | None = None,
 ) -> dict[str, Any]:
     return {
         "schema_version": 1,
@@ -695,6 +818,8 @@ def _base_result(
         "status": status,
         "runtime": config.worker_type,
         "requested_model": profile.model,
+        "logical_agent": logical_agent,
+        "model_route": model_route,
         "actual_upstream_model": None,
         "session_id": session_id,
         "exit_code": exit_code,
@@ -864,6 +989,10 @@ def _build_argv(
     profile: Any,
     prompt: str,
     resume_session_id: str | None,
+    resolved_agent_id: str,
+    resolved_model_route: str,
+    effective_context_limit: int | None = None,
+    effective_output_limit: int | None = None,
 ) -> list[str]:
     if config.worker_type == "opencode":
         argv = [
@@ -871,12 +1000,16 @@ def _build_argv(
             "--standalone",
             "run",
             "--agent",
-            profile.agent,
+            resolved_agent_id,
             "--model",
-            profile.model,
+            resolved_model_route,
             "--format",
             "json",
         ]
+        if effective_context_limit is not None:
+            argv.extend(["--max-context", str(effective_context_limit)])
+        if effective_output_limit is not None:
+            argv.extend(["--max-output", str(effective_output_limit)])
         if resume_session_id:
             argv.extend(["--session", resume_session_id])
         argv.append(prompt)
@@ -957,37 +1090,34 @@ def _live_pong(
         if profile_id is not None
         else next(iter(config.profiles.values()))
     )
+    # Create a dummy task for routing resolution
+    dummy_task = Task(
+        task_id="HEALTH",
+        workspace_id=next(iter(config.workspaces)),
+        profile=profile.profile_id,
+        expected_branch="master",
+        objective="health",
+        references=(),
+        allowed_paths=(),
+        acceptance_criteria=(),
+    )
+    resolved_agent_id, resolved_model_route = policy.resolve_agent_for_task(dummy_task, config, profile)
+
+    # Get effective model settings from agent registry
+    agent_entry = config.agent_registry.get(resolved_agent_id)
+    effective_context_limit = agent_entry.effective_context_limit if agent_entry else None
+    effective_output_limit = agent_entry.effective_output_limit if agent_entry else None
+
     credential = _read_credential(config)
     redactor = SecretRedactor([credential])
     temp = Path(config.runtime_root) / "tmp" / f"health-{store.new_run_id()}"
     temp.mkdir(parents=True, exist_ok=False)
-    argv = [
-        config.opencode_executable,
-        "--standalone",
-        "run",
-        "--agent",
-        profile.agent,
-        "--model",
-        profile.model,
-        "--format",
-        "json",
-        "Reply with exactly PONG",
-    ]
-    env = _build_worker_env(
-        config,
-        Task(
-            task_id="HEALTH",
-            workspace_id=next(iter(config.workspaces)),
-            profile=profile.profile_id,
-            expected_branch="master",
-            objective="health",
-            references=(),
-            allowed_paths=(),
-            acceptance_criteria=(),
-        ),
-        credential,
-        "health",
+    argv = _build_argv(
+        config, profile, "Reply with exactly PONG", None,
+        resolved_agent_id, resolved_model_route,
+        effective_context_limit, effective_output_limit
     )
+    env = _build_worker_env(config, dummy_task, credential, "health")
     result = run_worker(
         argv,
         cwd=next(iter(config.workspaces.values())),
@@ -1012,3 +1142,49 @@ def _live_pong(
         "exit_code": result.exit_code,
         "timed_out": result.timed_out,
     }
+
+
+def _check_circuit_breaker(
+    config: BridgeConfig,
+    agent_id: str,
+) -> tuple[bool, str | None]:
+    """Check if the agent's route is circuit-broken.
+    Returns (is_open, cooldown_until).
+    """
+    if not config.recovery_policy:
+        return False, None
+    
+    agent_policy = config.recovery_policy.per_agent_policies.get(agent_id)
+    if not agent_policy:
+        return False, None
+    
+    # Check route health tracking (in state directory)
+    state_root = Path(config.runtime_root).parent / "state"
+    route_health_path = state_root / "route-health.json"
+    if not route_health_path.is_file():
+        return False, None
+    
+    import json
+    try:
+        health_data = json.loads(route_health_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False, None
+    
+    routes = health_data.get("routes", {})
+    route_info = routes.get(agent_id, {})
+    consecutive_failures = route_info.get("consecutive_failures", 0)
+    cooldown_until = route_info.get("cooldown_until")
+    
+    threshold = agent_policy.get("circuit_breaker_threshold", 5)
+    if consecutive_failures >= threshold:
+        if cooldown_until:
+            try:
+                from datetime import datetime, timezone
+                cooldown_time = datetime.fromisoformat(cooldown_until.replace("Z", "+00:00"))
+                if datetime.now(timezone.utc) < cooldown_time:
+                    return True, cooldown_until
+            except ValueError:
+                pass
+        return True, cooldown_until
+    
+    return False, None

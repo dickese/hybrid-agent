@@ -72,10 +72,11 @@ class Task:
     checkpoint_id: str | None = None
     resume_session_id: str | None = None
     fake_scenario: str | None = None
+    task_category: str | None = None
     source_path: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
-        return {
+        result: dict[str, Any] = {
             "schema_version": 1,
             "task_id": self.task_id,
             "workspace_id": self.workspace_id,
@@ -90,12 +91,12 @@ class Task:
             "parent_task_id": self.parent_task_id,
             "checkpoint_id": self.checkpoint_id,
             "resume_session_id": self.resume_session_id,
-            "metadata": (
-                {"fake_scenario": self.fake_scenario}
-                if self.fake_scenario is not None
-                else {}
-            ),
         }
+        if self.fake_scenario is not None:
+            result["metadata"] = {"fake_scenario": self.fake_scenario}
+        if self.task_category is not None:
+            result.setdefault("metadata", {})["task_category"] = self.task_category
+        return result
 
 
 def load_task(path: str | Path) -> Task:
@@ -191,11 +192,12 @@ def parse_task(data: Any, source_path: str | None = None) -> Task:
             raise TaskError("resume_session_id requires parent_task_id")
 
     fake_scenario: str | None = None
+    task_category: str | None = None
     metadata = data.get("metadata", {})
     if metadata is not None:
         if not isinstance(metadata, dict):
             raise TaskError("metadata must be an object")
-        unknown_meta = sorted(set(metadata) - {"fake_scenario"})
+        unknown_meta = sorted(set(metadata) - {"fake_scenario", "task_category"})
         if unknown_meta:
             raise TaskError("metadata contains unsupported keys", keys=unknown_meta)
         scenario = metadata.get("fake_scenario")
@@ -203,6 +205,11 @@ def parse_task(data: Any, source_path: str | None = None) -> Task:
             if not isinstance(scenario, str) or not _SCENARIO_RE.fullmatch(scenario):
                 raise TaskError("metadata.fake_scenario is invalid")
             fake_scenario = scenario
+        category = metadata.get("task_category")
+        if category is not None:
+            if not isinstance(category, str) or not _ID_RE.fullmatch(category):
+                raise TaskError("metadata.task_category is invalid")
+            task_category = category
 
     return Task(
         task_id=task_id,
@@ -219,6 +226,7 @@ def parse_task(data: Any, source_path: str | None = None) -> Task:
         checkpoint_id=checkpoint_id,
         resume_session_id=resume_session_id,
         fake_scenario=fake_scenario,
+        task_category=task_category,
         source_path=source_path,
     )
 

@@ -103,7 +103,7 @@ class RunnerTests(BridgeTestCase):
         self.assertEqual(code, 3, stderr)
         assert payload is not None
         self.assertEqual(payload["status"], "FAILED")
-        self.assertEqual(payload["error"]["code"], "protocol_error")
+        self.assertEqual(payload["error"]["code"], "STREAM_INVALID")
 
     def test_error_event_fails(self) -> None:
         code, payload, _, stderr = self.run_task(
@@ -139,7 +139,7 @@ class RunnerTests(BridgeTestCase):
         self.assertEqual(code, 3, stderr)
         assert payload is not None
         self.assertEqual(payload["status"], "FAILED")
-        self.assertEqual(payload["error"]["category"], "transient")
+        self.assertEqual(payload["error"]["category"], "rate_limit")
         self.assertTrue(payload["error"]["retryable"])
 
     def test_timeout_kills_worker(self) -> None:

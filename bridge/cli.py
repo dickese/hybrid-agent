@@ -13,6 +13,7 @@ from . import __version__, store
 from .config import load_config
 from .errors import BridgeError, TaskError
 from .redact import SecretRedactor
+from .recovery import auto_recover
 from .runner import checkpoint, execute_run, health, recover
 
 
@@ -58,6 +59,13 @@ def _build_parser() -> argparse.ArgumentParser:
     checkpoint_parser.add_argument("--task", required=True)
     checkpoint_parser.add_argument("--checkpoint-id")
 
+    auto_recover_parser = subparsers.add_parser(
+        "auto-recover", help="Automatically recover a failed task using shared recovery policy"
+    )
+    auto_recover_parser.add_argument("--config", required=True)
+    auto_recover_parser.add_argument("--task", required=True)
+    auto_recover_parser.add_argument("--max-attempts", type=int, default=3)
+
     return parser
 
 
@@ -99,6 +107,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         elif args.command == "checkpoint":
             payload, code = checkpoint(
                 args.config, args.task, checkpoint_id=args.checkpoint_id
+            )
+        elif args.command == "auto-recover":
+            payload, code = auto_recover(
+                args.config, args.task, max_recovery_attempts=args.max_attempts
             )
         else:  # pragma: no cover - argparse enforces the command
             raise TaskError("Unknown command")

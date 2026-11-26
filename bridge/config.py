@@ -11,7 +11,7 @@ import os
 import re
 import sys
 import tempfile
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -53,6 +53,50 @@ class Profile:
 
 
 @dataclass(frozen=True)
+class AgentRegistryEntry:
+    id: str
+    description: str
+    suitable_tasks: tuple[str, ...]
+    unsuitable_tasks: tuple[str, ...]
+    model_route: str
+    execution_profile: str
+    required_capabilities: tuple[str, ...]
+    permission_policy: str
+    thinking_preference: str
+    thinking_config_mechanism: str
+    target_context_limit: int
+    target_output_limit: int
+    effective_context_limit: int
+    effective_output_limit: int
+    context_safety_margin: float
+    recovery_policy: str
+    escalation_candidates: tuple[str, ...]
+    qualification_status: str
+    evidence_references: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class RoutingPolicy:
+    default_routing: dict[str, str]
+    routing_rules: tuple[dict[str, Any], ...]
+    explicit_override_allowed: bool
+    capability_checks: dict[str, tuple[str, ...]]
+    permission_requirements: dict[str, str]
+    route_health_checks: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class RecoveryPolicy:
+    global_settings: dict[str, Any]
+    per_agent_policies: dict[str, dict[str, Any]]
+    failure_classification: dict[str, Any]
+    recovery_procedure: dict[str, Any]
+    route_health_tracking: dict[str, Any]
+    escalation_policy: dict[str, Any]
+    bootstrap_self_recovery: dict[str, Any]
+
+
+@dataclass(frozen=True)
 class BridgeConfig:
     source_path: str
     opencode_executable: str | None
@@ -73,6 +117,9 @@ class BridgeConfig:
     max_prompt_chars: int
     lock_timeout_seconds: int
     max_runs_per_task: int
+    agent_registry: dict[str, AgentRegistryEntry] = field(default_factory=dict)
+    routing_policy: RoutingPolicy | None = None
+    recovery_policy: RecoveryPolicy | None = None
 
     def workspace(self, workspace_id: str) -> str:
         try:
@@ -130,7 +177,37 @@ def load_config(path: str | Path) -> BridgeConfig:
         data = json.loads(source.read_text(encoding="utf-8-sig"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise ConfigError("Config is not readable JSON", error=str(exc)) from exc
-    return parse_config(data, source_path=str(source))
+    config = parse_config(data, source_path=str(source))
+    config_dir = source.parent
+    # Load optional policy files
+    agent_registry = _load_agent_registry(config_dir)
+    routing_policy = _load_routing_policy(config_dir)
+    recovery_policy = _load_recovery_policy(config_dir)
+    # Reconstruct config with policies (dataclass is frozen, so create new instance)
+    return BridgeConfig(
+        source_path=config.source_path,
+        opencode_executable=config.opencode_executable,
+        opencode_config=config.opencode_config,
+        opencode_config_dir=config.opencode_config_dir,
+        runtime_root=config.runtime_root,
+        credential_file=config.credential_file,
+        credential_env=config.credential_env,
+        workspaces=config.workspaces,
+        profiles=config.profiles,
+        approved_models=config.approved_models,
+        worker_type=config.worker_type,
+        fake_worker_executable=config.fake_worker_executable,
+        fake_python_executable=config.fake_python_executable,
+        timeout_seconds=config.timeout_seconds,
+        max_timeout_seconds=config.max_timeout_seconds,
+        max_summary_chars=config.max_summary_chars,
+        max_prompt_chars=config.max_prompt_chars,
+        lock_timeout_seconds=config.lock_timeout_seconds,
+        max_runs_per_task=config.max_runs_per_task,
+        agent_registry=agent_registry,
+        routing_policy=routing_policy,
+        recovery_policy=recovery_policy,
+    )
 
 
 def parse_config(data: Any, source_path: str | None = None) -> BridgeConfig:
@@ -308,6 +385,85 @@ def parse_config(data: Any, source_path: str | None = None) -> BridgeConfig:
         max_prompt_chars=max_prompt_chars,
         lock_timeout_seconds=lock_timeout_seconds,
         max_runs_per_task=max_runs_per_task,
+    )
+
+
+def _load_agent_registry(config_dir: Path) -> dict[str, AgentRegistryEntry]:
+    """Load agent registry from config/agent-registry.json."""
+    registry_path = config_dir / "agent-registry.json"
+    if not registry_path.is_file():
+        return {}
+    try:
+        data = json.loads(registry_path.read_text(encoding="utf-8-sig"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return {}
+    agents_data = data.get("agents", {})
+    result: dict[str, AgentRegistryEntry] = {}
+    for agent_id, agent_data in agents_data.items():
+        if not isinstance(agent_data, dict):
+            continue
+        result[agent_id] = AgentRegistryEntry(
+            id=agent_data.get("id", agent_id),
+            description=agent_data.get("description", ""),
+            suitable_tasks=tuple(agent_data.get("suitable_tasks", [])),
+            unsuitable_tasks=tuple(agent_data.get("unsuitable_tasks", [])),
+            model_route=agent_data.get("model_route", ""),
+            execution_profile=agent_data.get("execution_profile", ""),
+            required_capabilities=tuple(agent_data.get("required_capabilities", [])),
+            permission_policy=agent_data.get("permission_policy", "write"),
+            thinking_preference=agent_data.get("thinking_preference", "auto"),
+            thinking_config_mechanism=agent_data.get("thinking_config_mechanism", ""),
+            target_context_limit=agent_data.get("target_context_limit", 128000),
+            target_output_limit=agent_data.get("target_output_limit", 8192),
+            effective_context_limit=agent_data.get("effective_context_limit", 128000),
+            effective_output_limit=agent_data.get("effective_output_limit", 8192),
+            context_safety_margin=float(agent_data.get("context_safety_margin", 0.1)),
+            recovery_policy=agent_data.get("recovery_policy", agent_id),
+            escalation_candidates=tuple(agent_data.get("escalation_candidates", [])),
+            qualification_status=agent_data.get("qualification_status", "NOT_VERIFIED"),
+            evidence_references=tuple(agent_data.get("evidence_references", [])),
+        )
+    return result
+
+
+def _load_routing_policy(config_dir: Path) -> RoutingPolicy | None:
+    """Load routing policy from config/routing-policy.json."""
+    policy_path = config_dir / "routing-policy.json"
+    if not policy_path.is_file():
+        return None
+    try:
+        data = json.loads(policy_path.read_text(encoding="utf-8-sig"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    return RoutingPolicy(
+        default_routing=data.get("default_routing", {}),
+        routing_rules=tuple(data.get("routing_rules", [])),
+        explicit_override_allowed=data.get("explicit_override_allowed", True),
+        capability_checks={
+            k: tuple(v) for k, v in data.get("capability_checks", {}).items()
+        },
+        permission_requirements=data.get("permission_requirements", {}),
+        route_health_checks=data.get("route_health_checks", {}),
+    )
+
+
+def _load_recovery_policy(config_dir: Path) -> RecoveryPolicy | None:
+    """Load recovery policy from config/recovery-policy.json."""
+    policy_path = config_dir / "recovery-policy.json"
+    if not policy_path.is_file():
+        return None
+    try:
+        data = json.loads(policy_path.read_text(encoding="utf-8-sig"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    return RecoveryPolicy(
+        global_settings=data.get("global_settings", {}),
+        per_agent_policies=data.get("per_agent_policies", {}),
+        failure_classification=data.get("failure_classification", {}),
+        recovery_procedure=data.get("recovery_procedure", {}),
+        route_health_tracking=data.get("route_health_tracking", {}),
+        escalation_policy=data.get("escalation_policy", {}),
+        bootstrap_self_recovery=data.get("bootstrap_self_recovery", {}),
     )
 
 

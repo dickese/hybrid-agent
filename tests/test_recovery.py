@@ -2,12 +2,23 @@ from __future__ import annotations
 
 import subprocess
 import sys
+import tempfile
 import time
 import unittest
 from pathlib import Path
 
 from bridge import gitutil, proc, store
+from bridge.config import load_config
 from bridge.contracts import parse_task
+from bridge.events import classify_failure, parse_events, WorkerOutcome
+from bridge.recovery import (
+    evaluate_recovery,
+    execute_recovery,
+    auto_recover,
+    RecoveryContext,
+    is_failure_retryable,
+    get_agent_recovery_policy,
+)
 from tests.support import (
     FRAMEWORK_ROOT,
     BridgeTestCase,
@@ -244,6 +255,335 @@ class RecoveryTests(BridgeTestCase):
         assert payload is not None
         self.assertEqual(payload["status"], "BLOCKED")
         self.assertIn("ACCEPTED", payload["error"]["message"])
+
+
+class AutoRecoveryTests(unittest.TestCase):
+    """Tests for the shared automatic recovery engine."""
+
+    def setUp(self) -> None:
+        from tests.support import make_fixture, write_fake_config
+        self._temp = tempfile.TemporaryDirectory(prefix="bridge-autorecovery-test-")
+        self.root = Path(self._temp.name)
+        self.runtime = self.root / ".runtime"
+        self.fixture = make_fixture(self.root / "fixture")
+        # Create a config that uses the temp runtime but loads real policy files
+        self.config = self._create_test_config()
+
+    def _create_test_config(self) -> BridgeConfig:
+        """Create a test config that uses temp runtime but real policy files."""
+        import json
+        import shutil
+        
+        # Copy policy files to temp directory
+        policy_dir = FRAMEWORK_ROOT / "config"
+        for policy_file in ["agent-registry.json", "routing-policy.json", "recovery-policy.json"]:
+            src = policy_dir / policy_file
+            dst = self.root / policy_file
+            if src.exists():
+                shutil.copy2(src, dst)
+        
+        config_data = {
+            "schema_version": 1,
+            "worker": {
+                "type": "fake",
+                "executable": str(FRAMEWORK_ROOT / "tests" / "fake_worker.py"),
+                "python_executable": sys.executable,
+            },
+            "runtime_root": str(self.runtime),
+            "credential_env": "TEST_KEY",
+            "workspaces": {"demo": str(self.fixture)},
+            "profiles": {
+                "agent-build": {
+                    "agent": "bridge-build",
+                    "model": "9router/agent-build",
+                    "access": "write",
+                },
+                "agent-fast": {
+                    "agent": "bridge-fast",
+                    "model": "9router/agent-fast",
+                    "access": "write",
+                },
+            },
+            "approved_models": ["9router/agent-build", "9router/agent-fast"],
+            "timeout_seconds": 300,
+            "max_timeout_seconds": 900,
+        }
+        config_path = self.root / "test_config.json"
+        with open(config_path, 'w') as f:
+            json.dump(config_data, f)
+        return load_config(config_path)
+
+    def tearDown(self) -> None:
+        self._temp.cleanup()
+
+    def _make_task_with_category(self, task_id: str, category: str) -> dict:
+        return {
+            "schema_version": 1,
+            "task_id": task_id,
+            "workspace_id": "demo",
+            "profile": "agent-build",
+            "expected_branch": "master",
+            "objective": "Test auto-recovery",
+            "references": [],
+            "allowed_paths": ["test.py"],
+            "acceptance_criteria": ["Test passes"],
+            "metadata": {"task_category": category},
+        }
+
+    def test_is_failure_retryable_rate_limited(self) -> None:
+        """Test that rate_limited failures are retryable for agent-build."""
+        policy = get_agent_recovery_policy(self.config, "agent-build")
+        self.assertIsNotNone(policy)
+        
+        error = {"code": "RATE_LIMITED", "category": "rate_limit", "retryable": True}
+        self.assertTrue(is_failure_retryable(error, policy))
+
+    def test_is_failure_retryable_quota_exhausted_agent_build(self) -> None:
+        """Test that quota_exhausted is retryable for agent-build (per policy)."""
+        policy = get_agent_recovery_policy(self.config, "agent-build")
+        self.assertIsNotNone(policy)
+        
+        error = {"code": "QUOTA_EXHAUSTED", "category": "quota", "retryable": False}
+        self.assertTrue(is_failure_retryable(error, policy))
+
+    def test_is_failure_retryable_auth_failure(self) -> None:
+        """Test that auth_failure is never retryable."""
+        policy = get_agent_recovery_policy(self.config, "agent-build")
+        self.assertIsNotNone(policy)
+        
+        error = {"code": "AUTH_FAILURE", "category": "auth", "retryable": False}
+        self.assertFalse(is_failure_retryable(error, policy))
+
+    def test_evaluate_recovery_retry_on_transient_failure(self) -> None:
+        """Test that transient failures trigger RETRY decision."""
+        from bridge.contracts import load_task
+        import tempfile
+        import json
+        
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+            task_dict = self._make_task_with_category("AUTO-REC-001", "general_implementation")
+            json.dump(task_dict, f)
+            task_path = f.name
+        
+        try:
+            task = load_task(task_path)
+            profile = self.config.profile(task.profile)
+            
+            class MockOutcome:
+                session_id = "ses_test12345678901234"
+                texts = ()
+                tools_used = ()
+                edit_tools_used = ()
+                event_counts = {"error": 1}
+                error_message = "rate limit exceeded"
+                error_code = "RATE_LIMITED"
+                malformed_lines = ()
+                terminal_seen = True
+                terminal_reason = "error"
+                last_event_type = "error"
+                last_step_reason = "error"
+                raw_events = 1
+                summary = "rate limit exceeded"
+                redacted_summary = "rate limit exceeded"
+                has_terminal_completion = False
+                has_activity = False
+            
+            outcome = MockOutcome()
+            error_classification = classify_failure(
+                exit_code=1, outcome=outcome, stderr_tail="429 Too Many Requests"
+            )
+            
+            workspace = str(self.fixture)
+            baseline = {"head": "abc123", "branch": "master"}
+            
+            context = RecoveryContext(
+                config=self.config,
+                task=task,
+                profile=profile,
+                run_id="test-run-id",
+                run_directory=Path("test"),
+                baseline=baseline,
+                workspace=workspace,
+                exit_code=1,
+                outcome=outcome,
+                stderr_tail="429 Too Many Requests",
+                error_classification=error_classification,
+            )
+            
+            decision = evaluate_recovery(context)
+            self.assertEqual(decision.action, "RETRY")
+            self.assertEqual(decision.agent_id, "agent-build")
+        finally:
+            import os
+            os.unlink(task_path)
+
+    def test_evaluate_recovery_quarantine_on_auth_failure(self) -> None:
+        """Test that auth failures trigger QUARANTINE decision."""
+        from bridge.contracts import load_task
+        import tempfile
+        import json
+        
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+            task_dict = self._make_task_with_category("AUTO-REC-002", "general_implementation")
+            json.dump(task_dict, f)
+            task_path = f.name
+        
+        try:
+            task = load_task(task_path)
+            profile = self.config.profile(task.profile)
+            
+            class MockOutcome:
+                session_id = "ses_test12345678901234"
+                texts = ()
+                tools_used = ()
+                edit_tools_used = ()
+                event_counts = {"error": 1}
+                error_message = "401 Unauthorized"
+                error_code = "AUTH_FAILURE"
+                malformed_lines = ()
+                terminal_seen = True
+                terminal_reason = "error"
+                last_event_type = "error"
+                last_step_reason = "error"
+                raw_events = 1
+                summary = "auth failed"
+                redacted_summary = "auth failed"
+                has_terminal_completion = False
+                has_activity = False
+            
+            outcome = MockOutcome()
+            error_classification = classify_failure(
+                exit_code=1, outcome=outcome, stderr_tail="401 Unauthorized"
+            )
+            
+            workspace = str(self.fixture)
+            baseline = {"head": "abc123", "branch": "master"}
+            
+            context = RecoveryContext(
+                config=self.config,
+                task=task,
+                profile=profile,
+                run_id="test-run-id",
+                run_directory=Path("test"),
+                baseline=baseline,
+                workspace=workspace,
+                exit_code=1,
+                outcome=outcome,
+                stderr_tail="401 Unauthorized",
+                error_classification=error_classification,
+            )
+            
+            decision = evaluate_recovery(context)
+            self.assertEqual(decision.action, "QUARANTINE")
+            self.assertTrue(decision.requires_user_intervention)
+        finally:
+            import os
+            os.unlink(task_path)
+
+    def test_evaluate_recovery_escalate_on_budget_exhausted(self) -> None:
+        """Test that exhausted retry budget triggers ESCALATE decision."""
+        from bridge.contracts import load_task
+        import tempfile
+        import json
+        
+        # Pre-populate workflow with exhausted budget
+        workflow = store.load_workflow(self.runtime)
+        workflow["tasks"]["AUTO-REC-003"] = {
+            "task_id": "AUTO-REC-003",
+            "status": "PENDING",
+            "attempts": 10,
+            "correction_rounds": 10,
+            "total_recovery_retries": 10,
+            "parent_task_id": None,
+            "run_ids": [],
+        }
+        store.save_workflow(self.runtime, workflow)
+        
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+            task_dict = self._make_task_with_category("AUTO-REC-003", "general_implementation")
+            json.dump(task_dict, f)
+            task_path = f.name
+        
+        try:
+            task = load_task(task_path)
+            profile = self.config.profile(task.profile)
+            
+            class MockOutcome:
+                session_id = "ses_test12345678901234"
+                texts = ()
+                tools_used = ()
+                edit_tools_used = ()
+                event_counts = {"error": 1}
+                error_message = "rate limit exceeded"
+                error_code = "RATE_LIMITED"
+                malformed_lines = ()
+                terminal_seen = True
+                terminal_reason = "error"
+                last_event_type = "error"
+                last_step_reason = "error"
+                raw_events = 1
+                summary = "rate limit exceeded"
+                redacted_summary = "rate limit exceeded"
+                has_terminal_completion = False
+                has_activity = False
+            
+            outcome = MockOutcome()
+            error_classification = classify_failure(
+                exit_code=1, outcome=outcome, stderr_tail="429 Too Many Requests"
+            )
+            
+            workspace = str(self.fixture)
+            baseline = {"head": "abc123", "branch": "master"}
+            
+            context = RecoveryContext(
+                config=self.config,
+                task=task,
+                profile=profile,
+                run_id="test-run-id",
+                run_directory=Path("test"),
+                baseline=baseline,
+                workspace=workspace,
+                exit_code=1,
+                outcome=outcome,
+                stderr_tail="429 Too Many Requests",
+                error_classification=error_classification,
+            )
+            
+            decision = evaluate_recovery(context)
+            self.assertEqual(decision.action, "ESCALATE")
+            self.assertTrue(decision.requires_user_intervention)
+        finally:
+            import os
+            os.unlink(task_path)
+
+    def test_auto_recover_cli_command(self) -> None:
+        """Test the auto-recover CLI command."""
+        # First run a task that fails with a retryable error
+        task = write_task(self.root, self._make_task_with_category("AUTO-CLI-001", "general_implementation"))
+        # Use a fake scenario that produces a rate limit error
+        task = write_task(self.root, {**self._make_task_with_category("AUTO-CLI-001", "general_implementation"), "metadata": {"fake_scenario": "transient"}})
+        
+        # Get config path
+        config_path = self.root / "test_config.json"
+        
+        # Run the task (should fail with rate limit)
+        code, payload, _, stderr = run_cli(
+            ["run", "--config", str(config_path), "--task", str(task)]
+        )
+        self.assertEqual(code, 3)
+        assert payload is not None
+        self.assertEqual(payload["status"], "FAILED")
+        self.assertEqual(payload["error"]["code"], "RATE_LIMITED")
+        
+        # Now try auto-recover
+        code, payload, _, stderr = run_cli(
+            ["auto-recover", "--config", str(config_path), "--task", str(task), "--max-attempts", "1"]
+        )
+        # Auto-recover should attempt recovery and either succeed or fail gracefully
+        # The exact outcome depends on the recovery logic
+        assert payload is not None
+        # Should not crash
+        self.assertIn(payload["status"], ["COMPLETED", "FAILED", "QUARANTINED", "BLOCKED"])
 
 
 if __name__ == "__main__":

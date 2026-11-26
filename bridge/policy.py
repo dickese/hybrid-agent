@@ -8,11 +8,114 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from .config import BridgeConfig, Profile, RoutingPolicy
 from .contracts import Task
-from .config import Profile
 from .errors import TaskError
 from .gitutil import StatusEntry, changed_paths
 from .redact import contains_secret_shape
+
+
+def resolve_agent_for_task(
+    task: Task,
+    config: BridgeConfig,
+    profile: Profile,
+) -> tuple[str, str]:
+    """Resolve the logical agent and model route for a task based on routing policy.
+
+    Returns (logical_agent_id, model_route).
+    """
+    routing_policy = config.routing_policy
+    agent_registry = config.agent_registry
+
+    # If task has explicit task_category, use routing rules
+    if task.task_category and routing_policy:
+        # Check routing rules in priority order
+        for rule in routing_policy.routing_rules:
+            condition = rule.get("condition", "")
+            # Simple condition evaluation: check if task_category matches
+            if task.task_category in condition:
+                agent_id = rule.get("agent")
+                if agent_id and agent_id in agent_registry:
+                    entry = agent_registry[agent_id]
+                    return agent_id, entry.model_route
+
+        # Fall back to default routing
+        default_agent = routing_policy.default_routing.get(task.task_category)
+        if default_agent and default_agent in agent_registry:
+            entry = agent_registry[default_agent]
+            return default_agent, entry.model_route
+
+    # If explicit agent override is allowed and profile agent matches a registry entry
+    if routing_policy and routing_policy.explicit_override_allowed:
+        profile_agent = profile.agent
+        # Check if the profile's agent is a known execution profile
+        for agent_id, entry in agent_registry.items():
+            if entry.execution_profile == profile_agent:
+                return agent_id, entry.model_route
+
+    # Default: use the first agent in registry or fall back to profile
+    if agent_registry:
+        first_agent = next(iter(agent_registry.values()))
+        return first_agent.id, first_agent.model_route
+
+    # Ultimate fallback
+    return "agent-build", profile.model
+
+
+def validate_agent_capabilities(
+    agent_id: str,
+    config: BridgeConfig,
+    profile: Profile,
+) -> list[str]:
+    """Validate that the agent's required capabilities are met by the profile/model.
+    Returns list of missing capabilities (empty if all met).
+    """
+    agent_registry = config.agent_registry
+    routing_policy = config.routing_policy
+    if not routing_policy:
+        return []
+
+    entry = agent_registry.get(agent_id)
+    if not entry:
+        return []
+
+    required = set(entry.required_capabilities)
+    available = set(routing_policy.capability_checks.get(agent_id, []))
+    missing = required - available
+    return sorted(missing)
+
+
+def validate_permission_policy(
+    agent_id: str,
+    config: BridgeConfig,
+    profile: Profile,
+) -> bool:
+    """Validate that the profile's access level satisfies the agent's permission policy."""
+    agent_registry = config.agent_registry
+    routing_policy = config.routing_policy
+    if not routing_policy:
+        return True
+
+    entry = agent_registry.get(agent_id)
+    if not entry:
+        return True
+
+    required_permission = routing_policy.permission_requirements.get(agent_id, "write")
+    profile_access = profile.access
+
+    # Permission satisfaction matrix:
+    # - Profile "read" satisfies agent "read_only" only
+    # - Profile "write" satisfies agent "write" and "write_docs_only"
+    # - Agent "read_only" requires profile "read" or "write"
+    # - Agent "write" requires profile "write"
+    # - Agent "write_docs_only" requires profile "write" (enforced in scope evaluation)
+    if required_permission == "read_only":
+        return profile_access in {"read", "write"}
+    elif required_permission == "write":
+        return profile_access == "write"
+    elif required_permission == "write_docs_only":
+        return profile_access == "write"
+    return False
 
 
 @dataclass
@@ -41,6 +144,7 @@ def build_prompt(
     branch: str,
     head: str,
     max_prompt_chars: int,
+    agent_permission_policy: str | None = None,
 ) -> str:
     allowed = ", ".join(task.allowed_paths) if task.allowed_paths else "(none)"
     references = ", ".join(task.references) if task.references else "(none)"
@@ -49,11 +153,17 @@ def build_prompt(
         if task.acceptance_criteria
         else "- (none supplied; do not self-accept)"
     )
-    write_rule = (
-        "Only the allowed_paths listed above may be created, modified, moved, or deleted."
-        if profile.access == "write"
-        else "This is a read-only profile: do not modify, create, move, or delete any file."
-    )
+    if agent_permission_policy == "write_docs_only":
+        write_rule = (
+            "Only documentation files (e.g., *.md, *.txt, *.rst, docs/*) within allowed_paths "
+            "may be created, modified, moved, or deleted. Do not modify source code or other non-documentation files."
+        )
+    elif profile.access == "write":
+        write_rule = (
+            "Only the allowed_paths listed above may be created, modified, moved, or deleted."
+        )
+    else:
+        write_rule = "This is a read-only profile: do not modify, create, move, or delete any file."
     resume_note = ""
     if task.resume_session_id:
         resume_note = (
@@ -74,7 +184,7 @@ references: {references}
 OBJECTIVE
 {task.objective}
 
-ACCEPTANCE CRITERIA (for the orchestrator; you do not accept your own work)
+ACCEPTANCE CRITERIA (for the orchestrator; you do not self-accept)
 {criteria}
 
 RULES
@@ -96,6 +206,35 @@ RULES
     return prompt
 
 
+def _is_documentation_file(path: str) -> bool:
+    """Check if a file path is a documentation file."""
+    path_lower = path.lower()
+    # Documentation file extensions
+    doc_extensions = (
+        ".md", ".markdown", ".txt", ".rst", ".adoc", ".asciidoc",
+        ".tex", ".latex", ".org", ".wiki", ".textile", ".rdoc",
+    )
+    # Documentation directory patterns
+    doc_dirs = ("docs/", "doc/", "documentation/", "wiki/", "readme/", "changelog/")
+    
+    # Check extension
+    if any(path_lower.endswith(ext) for ext in doc_extensions):
+        return True
+    # Check if in documentation directory
+    if any(doc_dir in path_lower for doc_dir in doc_dirs):
+        return True
+    # Check common documentation filenames
+    filename = path_lower.split("/")[-1]
+    if filename.startswith("readme") or filename.startswith("changelog") or \
+       filename.startswith("license") or filename.startswith("contributing") or \
+       filename.startswith("authors") or filename.startswith("credits") or \
+       filename.startswith("todo") or filename.startswith("changes") or \
+       filename.startswith("history") or filename.startswith("news") or \
+       filename.startswith("release") or filename.startswith("version"):
+        return True
+    return False
+
+
 def evaluate_scope(
     task: Task,
     profile: Profile,
@@ -108,6 +247,7 @@ def evaluate_scope(
     entries: tuple[StatusEntry, ...],
     edit_tools_used: tuple[str, ...],
     diff_text: str,
+    agent_permission_policy: str | None = None,
 ) -> PolicyEvaluation:
     violations: list[dict[str, Any]] = []
     changed = changed_paths(entries)
@@ -157,6 +297,27 @@ def evaluate_scope(
                     "code": "read_only_edit_tool",
                     "message": "Read-only profile invoked an edit tool",
                     "tools": list(edit_tools_used),
+                }
+            )
+
+    # Enforce write_docs_only permission policy
+    if agent_permission_policy == "write_docs_only":
+        non_doc_files = [path for path in changed if not _is_documentation_file(path)]
+        if non_doc_files:
+            violations.append(
+                {
+                    "code": "write_docs_only_violation",
+                    "message": "Agent with write_docs_only permission modified non-documentation files",
+                    "paths": non_doc_files,
+                }
+            )
+        if edit_tools_used and non_doc_files:
+            violations.append(
+                {
+                    "code": "write_docs_only_edit_tool",
+                    "message": "Agent with write_docs_only permission invoked edit tools on non-documentation files",
+                    "tools": list(edit_tools_used),
+                    "paths": non_doc_files,
                 }
             )
 
