@@ -92,3 +92,16 @@ All files under `.runtime/evidence/`; raw run artifacts under `.runtime/runs/`.
 | Writer intake | One terminal Windows Bridge run, two lock files available, five terminal G2/G3 jobs, and no matching active external worker observed |
 
 G4 routing R01–R07, working-tree safety W01–W05, verification and recovery V01–V06, and compatibility C01–C02 are **NOT_RUN**. The reconciliation and offline plan creation did not exercise a G4 worker or change G3 state.
+
+## G4-B0 Bootstrap and G4-B Review
+
+Evidence is under `.runtime/poc-g4/bootstrap-b0/`. The worker could read staged source and write only to its isolated output and scratch areas. Its container had no mount for the canonical repository, Git metadata, G3, Augani state, or Docker socket. A separate Augani controller owned the durable plan and job state.
+
+| Evidence | Observed result |
+|---|---|
+| `offline-evidence.json` | Fake worker wrote patch output. Direct, shell, traversal and symlink writes to protected locations failed. The stopped container had no surviving detached child. Canonical source, observed Git metadata and G3 hashes matched. A second process could not acquire the existing Windows repository lock. |
+| `authorization.json`, `launch.json`, `job-status.json`, `live/control/worker-exit.json` | One job, `g4-b-development-001`, ran on `opencode-9router` / `9router/agent-build` in 522.563 seconds. Worker and container are stopped. |
+| `worker.patch`, `patch-applicability.txt` | Headers named the four authorized paths. `git apply --check` exited 128 on a malformed hunk. Git's automatic recount exited 1 because both existing configuration hunks failed to match the staged files. |
+| `review.json`, `plan-after-review.json` | Codex recorded rejection. G4-A remains done, G4-B is blocked, and G4-C through G4-E remain pending. |
+
+No patch was applied to the canonical tree. No routing or compatibility tests ran because the patch could not be staged. This evidence covers the G4-B0 bootstrap only. Production G4-D permission enforcement and the G4 acceptance criteria remain unverified.
