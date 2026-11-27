@@ -42,62 +42,57 @@ DASHBOARD_PORT = 8080
 SHARED_WORKSPACE_HOST = "D:/tools/hybrid-agent/.runtime/poc-g3/workspace"
 SHARED_WORKSPACE_CONTAINER = "/g3/workspace"
 
+# Path conversion: host path -> container path
+HOST_WORK_ROOT = "D:/tools/hybrid-agent"
+CONTAINER_WORK_ROOT = "/work"
+
 # G3 authorization gate
 G3_AUTHORIZED_ENV = "G3_AUTHORIZED"
+# Durable authorization state file (persists across container restarts)
+AUTH_STATE_FILE = pathlib.Path("/g3/state/.g3_authorized")
 
 
-def docker_run(args: list[str], env: dict[str, str], g3_base: pathlib.Path, timeout: int = 300, **kwargs) -> subprocess.CompletedProcess:
-    """Run a command in the persistent G3 container."""
-    container_name = "hybrid-agent-g3"
-    
-    # Ensure container is running
-    result = subprocess.run(
-        ["docker", "ps", "-q", "-f", f"name={container_name}"],
-        capture_output=True, text=True
-    )
-    if not result.stdout.strip():
-        # Check if container exists but stopped
-        result = subprocess.run(
-            ["docker", "ps", "-aq", "-f", f"name={container_name}"],
-            capture_output=True, text=True
-        )
-        if result.stdout.strip():
-            # Start existing stopped container
-            subprocess.run(["docker", "start", container_name], check=True)
-            time.sleep(2)
-        else:
-            # Start persistent container with shared workspace
-            subprocess.run([
-                "docker", "run", "-d", "--name", container_name,
-                "-v", WORK_MOUNT,
-                "-v", f"{g3_base}:/g3",
-                "-v", f"{SHARED_WORKSPACE_HOST}:{SHARED_WORKSPACE_CONTAINER}",
-                "-v", OPENCODE_CONFIG_MOUNT,
-                "-v", SECRET_MOUNT,
-                "-p", f"127.0.0.1:{DASHBOARD_PORT}:8080",
-                "-e", f"RUNNER={RUNNER_PATH}",
-                "-e", f"CONFIG={CONFIG_PATH}",
-                "-e", f"G3_BASE=/g3",
-                "-e", f"G3_CLI={env.get('G3_CLI', DEFAULT_CLI)}",
-                "-e", f"G3_MODEL={env.get('G3_MODEL', DEFAULT_MODEL)}",
-                "-e", f"G3_CLI_AGENT={env.get('G3_CLI_AGENT', DEFAULT_CLI_AGENT)}",
-                DOCKER_IMAGE,
-                "sleep", "infinity"
-            ], check=True)
-            # Wait for container to be ready
-            time.sleep(2)
-    
-    # Execute command in container
-    cmd = ["docker", "exec", "-i", container_name] + args
+def to_container_path(host_path: pathlib.Path) -> str:
+    """Convert a host path to container path (D:/tools/hybrid-agent -> /work)."""
+    try:
+        rel = host_path.resolve().relative_to(HOST_WORK_ROOT)
+        # Use PurePosixPath to ensure forward slashes for container paths
+        return str(pathlib.PurePosixPath(CONTAINER_WORK_ROOT) / rel.as_posix())
+    except ValueError:
+        # Path is not under HOST_WORK_ROOT, return as-is (assume already container path)
+        return str(host_path)
+
+
+def compose_exec(args: list[str], env: dict[str, str], timeout: int = 300, **kwargs) -> subprocess.CompletedProcess:
+    """Execute a command in the running docker-compose service."""
+    cmd = ["docker", "compose", "-f", "docker-compose.g3.yml", "exec", "-T", "g3-orchestrator"] + args
+    # Use the host environment - docker-compose will pass env vars defined in the compose file
+    # and we pass additional ones via -e flags if needed
     return subprocess.run(cmd, env=env, timeout=timeout, **kwargs)
 
 
+def ensure_container_running(g3_base: pathlib.Path) -> None:
+    """Ensure the docker-compose service is running."""
+    result = subprocess.run(
+        ["docker", "compose", "-f", "docker-compose.g3.yml", "ps", "-q", "g3-orchestrator"],
+        capture_output=True, text=True
+    )
+    if not result.stdout.strip():
+        # Start the service
+        subprocess.run(
+            ["docker", "compose", "-f", "docker-compose.g3.yml", "up", "-d", "g3-orchestrator"],
+            check=True
+        )
+        # Wait for container to be ready
+        time.sleep(3)
+
+
 def jrun(args: list[str], env: dict[str, str], g3_base: pathlib.Path, timeout: int = 300) -> dict[str, Any]:
-    """Run a JSON-output command in the container."""
-    result = docker_run(
+    """Run a JSON-output command in the container via docker-compose exec."""
+    ensure_container_running(g3_base)
+    result = compose_exec(
         ["python3", "-B", RUNNER_PATH, *args, "--json"],
         env=env,
-        g3_base=g3_base,
         capture_output=True,
         text=True,
         timeout=timeout,
@@ -108,11 +103,11 @@ def jrun(args: list[str], env: dict[str, str], g3_base: pathlib.Path, timeout: i
 
 
 def run_cli(args: list[str], env: dict[str, str], g3_base: pathlib.Path, expect: int = 0, timeout: int = 300) -> subprocess.CompletedProcess:
-    """Run a CLI command in the container."""
-    result = docker_run(
+    """Run a CLI command in the container via docker-compose exec."""
+    ensure_container_running(g3_base)
+    result = compose_exec(
         ["python3", "-B", RUNNER_PATH, *args],
         env=env,
-        g3_base=g3_base,
         capture_output=True,
         text=True,
         timeout=timeout,
@@ -122,30 +117,63 @@ def run_cli(args: list[str], env: dict[str, str], g3_base: pathlib.Path, expect:
     return result
 
 
-def create_plan(task_file: pathlib.Path, plan_file: pathlib.Path, workspace: str, plan_id: str, title: str, executor: str, env: dict, g3_base: pathlib.Path) -> dict:
+def check_authorization_state(g3_base: pathlib.Path) -> bool:
+    """Check if a live job has already been authorized and launched.
+    
+    Returns True if authorization has been consumed (i.e., a live job was launched).
+    """
+    # Check in container state
+    auth_file = g3_base / "state" / ".g3_authorized"
+    if auth_file.exists():
+        return True
+    return False
+
+
+def mark_authorization_consumed(g3_base: pathlib.Path) -> None:
+    """Mark the G3 authorization as consumed (one live job launched)."""
+    auth_file = g3_base / "state" / ".g3_authorized"
+    auth_file.parent.mkdir(parents=True, exist_ok=True)
+    auth_file.write_text(__import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat(), encoding="utf-8")
+
+
+def validate_authorization(env: dict[str, str], g3_base: pathlib.Path) -> None:
+    """Validate G3 authorization: requires env var AND not already consumed."""
+    if env.get(G3_AUTHORIZED_ENV) != "1":
+        raise RuntimeError(f"G3 authorization required: set {G3_AUTHORIZED_ENV}=1 to launch live worker job")
+    
+    if check_authorization_state(g3_base):
+        raise RuntimeError("G3 authorization already consumed: maximum one live worker job permitted for G3-C fixture")
+
+
+def create_plan(task_file: pathlib.Path | None, plan_file: pathlib.Path, workspace: str, plan_id: str, title: str, executor: str, env: dict, g3_base: pathlib.Path) -> dict:
     """Create a durable plan."""
-    return jrun([
+    # Convert host paths to container paths
+    plan_file_container = to_container_path(plan_file)
+    args = [
         "create-plan",
-        "--plan-file", str(plan_file),
+        "--plan-file", plan_file_container,
         "--workspace", workspace,
         "--title", title,
         "--plan-id", plan_id,
         "--executor", executor,
         "--config", CONFIG_PATH,
-    ], env, g3_base, timeout=120)
+    ]
+    if task_file:
+        task_file_container = to_container_path(task_file)
+        # Note: upstream create-plan doesn't have --task-file, this is for reference only
+    return jrun(args, env, g3_base, timeout=120)
 
 
 def launch_job(cli: str, model: str, cli_agent: str, workspace: str, task_file: pathlib.Path, plan_id: str, checklist_item: str, allowed_paths: list[str], max_changed_files: int, timeout_seconds: int, env: dict, g3_base: pathlib.Path) -> dict:
     """Launch an approved OpenCode worker job. Requires G3_AUTHORIZED=1."""
-    # Enforce G3 authorization
-    if env.get(G3_AUTHORIZED_ENV) != "1":
-        raise RuntimeError(f"G3 authorization required: set {G3_AUTHORIZED_ENV}=1 to launch live worker job")
-    
-    # Enforce maximum one authorized live worker job for G3-C fixture
-    # This is a safety check - the upstream also enforces single-writer per checklist item
+    # Enforce G3 authorization (env var + durable state)
+    validate_authorization(env, g3_base)
     
     # Invoke scope validation before dispatch
     validate_scope_before_launch(task_file, allowed_paths, env, g3_base)
+    
+    # Convert host paths to container paths
+    task_file_container = to_container_path(task_file)
     
     args = [
         "launch",
@@ -153,19 +181,24 @@ def launch_job(cli: str, model: str, cli_agent: str, workspace: str, task_file: 
         "--model", model,
         "--cli-agent", cli_agent,
         "--workspace", workspace,
-        "--task-file", str(task_file),
+        "--task-file", task_file_container,
         "--plan-id", plan_id,
         "--checklist-item", checklist_item,
         "--config", CONFIG_PATH,
         "--timeout-seconds", str(timeout_seconds),
         "--max-changed-files", str(max_changed_files),
         "--no-notify",
+        "--allow-unstructured-task",
     ]
     for path in allowed_paths:
         args.extend(["--allow-path", path])
     # Use a timeout that accounts for the worker timeout + buffer
     adapter_timeout = timeout_seconds + 120
-    return jrun(args, env, g3_base, timeout=adapter_timeout)
+    result = jrun(args, env, g3_base, timeout=adapter_timeout)
+    
+    # Mark authorization as consumed on successful launch
+    mark_authorization_consumed(g3_base)
+    return result
 
 
 def validate_scope_before_launch(task_file: pathlib.Path, allowed_paths: list[str], env: dict, g3_base: pathlib.Path) -> None:
@@ -176,15 +209,17 @@ def validate_scope_before_launch(task_file: pathlib.Path, allowed_paths: list[st
     for path in allowed_paths:
         launch_args.extend(["--allow-path", path])
     
+    # Convert host path to container path for the task file
+    task_file_container = to_container_path(task_file)
+    
     # Run scope validator in container
-    result = docker_run(
+    result = compose_exec(
         [
             "python3", "-B", "/work/poc/g3_validate_scope.py",
-            str(task_file),
+            task_file_container,
             json.dumps(launch_args)
         ],
         env=env,
-        g3_base=g3_base,
         timeout=60,
         capture_output=True,
         text=True,
@@ -277,7 +312,7 @@ def main() -> int:
     
     # create-plan
     p_plan = subparsers.add_parser("create-plan", help="Create a durable plan")
-    p_plan.add_argument("--task-file", type=pathlib.Path, required=True)
+    p_plan.add_argument("--task-file", type=pathlib.Path, help="Task contract file (optional)")
     p_plan.add_argument("--plan-file", type=pathlib.Path, required=True)
     p_plan.add_argument("--workspace", default=default_workspace)
     p_plan.add_argument("--plan-id", required=True)
@@ -321,7 +356,7 @@ def main() -> int:
     p_verify.add_argument("--workspace", type=pathlib.Path, default=pathlib.Path(SHARED_WORKSPACE_HOST))
     p_verify.add_argument("--allowed-prefixes", nargs="+", required=True)
     p_verify.add_argument("--required-files", nargs="+", required=True)
-    p_verify.add_argument("--test-cmd", nargs="+", required=True)
+    p_verify.add_argument("--test-cmd", required=True, help="Test command to run (quoted as single string)")
     
     # dashboard-url
     p_dash = subparsers.add_parser("dashboard-url", help="Print dashboard URL")
@@ -400,7 +435,11 @@ def main() -> int:
                 print(f"Missing required files: {missing}", file=sys.stderr)
                 return 1
             
-            ok, output = run_deterministic_tests(args.workspace, args.test_cmd, env)
+            # Parse test command (split on whitespace, respecting quotes)
+            import shlex
+            test_cmd = shlex.split(args.test_cmd)
+            
+            ok, output = run_deterministic_tests(args.workspace, test_cmd, env)
             if not ok:
                 print(f"Tests failed:\n{output}", file=sys.stderr)
                 return 1

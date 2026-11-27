@@ -12,7 +12,7 @@ This harness demonstrates the complete G3-C acceptance flow:
 8. Records the actual verdict
 9. Verifies plan advancement only after acceptance
 
-Includes a negative acceptance check using offline fixtures.
+Includes a negative acceptance check using offline fixtures (deterministic fake worker).
 """
 from __future__ import annotations
 
@@ -58,42 +58,41 @@ def utc_now() -> str:
     return dt.datetime.now(dt.timezone.utc).isoformat()
 
 
+def run_bootstrap(verify_only: bool = False) -> dict:
+    """Run the offline bootstrap script."""
+    cmd = [sys.executable, "-B", "/work/poc/g3_bootstrap.py"]
+    if verify_only:
+        cmd.append("--verify-only")
+    cmd.append("--json")
+    
+    env = os.environ.copy()
+    env["AGENT_ORCHESTRATOR_HOME"] = str(STATE)
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=120, env=env)
+    if result.returncode != 0:
+        raise RuntimeError(f"Bootstrap failed: {result.stderr}")
+    return json.loads(result.stdout)
+
+
 def prepare_workspace_and_config(env: dict[str, str]) -> pathlib.Path:
-    """Prepare the shared persistent workspace, copy .opencode agents, init git if needed.
+    """Prepare the shared persistent workspace using bootstrap.
     
     Does not automatically delete or recreate an existing workspace containing task results.
     Initializes a fresh disposable fixture only when necessary (first run or explicit reset).
     """
-    workspace = SHARED_WORKSPACE
+    # Run bootstrap to initialize workspace and config
+    bootstrap_result = run_bootstrap(verify_only=False)
+    if bootstrap_result.get("status") != "READY":
+        raise RuntimeError(f"Bootstrap failed: {bootstrap_result}")
     
-    # Initialize workspace if not already initialized
-    if not (workspace / ".git").exists():
-        workspace.mkdir(parents=True, exist_ok=True)
-        (workspace / "README.md").write_text("# G3 disposable workspace\n", encoding="utf-8")
-        (workspace / ".gitignore").write_text("__pycache__/\n*.pyc\n.pytest_cache/\n", encoding="utf-8")
-        shutil.copytree("/work/.opencode", workspace / ".opencode", dirs_exist_ok=True)
-        subprocess.run(["git", "init", "-q"], cwd=workspace, check=True)
-        subprocess.run(["git", "config", "user.email", "poc@example.test"], cwd=workspace, check=True)
-        subprocess.run(["git", "config", "user.name", "PoC"], cwd=workspace, check=True)
-        subprocess.run(["git", "add", "-A"], cwd=workspace, check=True)
-        subprocess.run(["git", "commit", "-qm", "seed"], cwd=workspace, check=True)
-    else:
-        # Workspace exists - verify it's clean or has expected state
-        # Don't automatically reset - preserve worker-created files for Codex inspection
-        pass
-    
-    cfg_dir = pathlib.Path("/tmp/cfg")
-    cfg_dir.mkdir(parents=True, exist_ok=True)
-    source = pathlib.Path("/run/opencode-global.json").read_text(encoding="utf-8")
-    adapted = source.replace(
-        "http://127.0.0.1:20128/v1", "http://host.docker.internal:20128/v1"
-    )
-    (cfg_dir / "opencode.json").write_text(adapted, encoding="utf-8")
-    env["OPENCODE_CONFIG"] = str(cfg_dir / "opencode.json")
+    # Set up environment variables for the worker
+    env["OPENCODE_CONFIG"] = "/tmp/opencode-config/opencode.json"
     env["OPENCODE_CONFIG_DIR"] = ""
     env["OPENCODE_DISABLE_PROJECT_CONFIG"] = "0"
     env["OPENCODE_DISABLE_AUTOUPDATE"] = "1"
-    return workspace
+    
+    return SHARED_WORKSPACE
 
 
 def load_secret(env: dict[str, str]) -> None:
@@ -196,20 +195,25 @@ print("INDEPENDENT_ASSERTIONS_OK", len(cases))
 
 
 def dashboard_check_windows_host(job_id: str, env: dict[str, str]) -> dict:
-    """Check dashboard accessibility from Windows host via Docker port mapping."""
-    # Dashboard binds 0.0.0.0:8080 in container, mapped to localhost:8080 on Windows
+    """Check dashboard accessibility from Windows host via Docker port mapping.
+    
+    The dashboard runs on 127.0.0.1:8081 inside the container.
+    The proxy forwards 0.0.0.0:8080 -> 127.0.0.1:8081.
+    Docker Compose maps 127.0.0.1:8080:8080 on the host.
+    """
     port = 8080
     
-    # Get token from dashboard runtime file
+    # Get token from dashboard runtime file (inside container at /g3/state/dashboard.json)
     runtime_path = pathlib.Path(env["AGENT_ORCHESTRATOR_HOME"]) / "dashboard.json"
     if not runtime_path.is_file():
         raise AssertionError("dashboard runtime file not found")
     runtime = json.loads(runtime_path.read_text(encoding="utf-8"))
+    # The token is in the URL from the dashboard startup
     token = runtime["url"].split("token=")[-1]
     
-    # Test authenticated access
+    # Test authenticated access from Windows host (via Docker port mapping)
     req = urllib.request.Request(
-        f"http://localhost:{port}/api/overview",
+        f"http://127.0.0.1:{port}/api/overview",
         headers={"X-Orchestrator-Token": token},
     )
     with urllib.request.urlopen(req, timeout=10) as resp:
@@ -219,7 +223,7 @@ def dashboard_check_windows_host(job_id: str, env: dict[str, str]) -> dict:
     
     # Test unauthenticated rejection
     try:
-        urllib.request.urlopen(f"http://localhost:{port}/api/overview", timeout=5)
+        urllib.request.urlopen(f"http://127.0.0.1:{port}/api/overview", timeout=5)
         unauth = "unexpected-200"
     except urllib.error.HTTPError as exc:
         unauth = exc.code
@@ -237,13 +241,15 @@ def dashboard_check_windows_host(job_id: str, env: dict[str, str]) -> dict:
         "project_count": len(payload["projects"]),
         "job_id_present": True,
         "accessible_from_windows_host": True,
+        "proxy_used": True,
     }
 
 
 def negative_acceptance_check(env: dict[str, str]) -> dict:
     """Negative acceptance check: verify that rejected review blocks plan advancement.
     
-    Uses a deterministic fake worker (nonexistent model) - no live inference.
+    Uses a deterministic fake worker that simulates failure without contacting 9Router.
+    The fake worker is implemented via a custom CLI profile that immediately exits with failure.
     """
     # Use a separate workspace for negative check to not pollute shared workspace
     neg_workspace = pathlib.Path("/tmp/g3-neg-workspace")
@@ -259,6 +265,44 @@ def negative_acceptance_check(env: dict[str, str]) -> dict:
     subprocess.run(["git", "add", "-A"], cwd=neg_workspace, check=True)
     subprocess.run(["git", "commit", "-qm", "seed"], cwd=neg_workspace, check=True)
     
+    # Create a fake worker profile that fails immediately without network access
+    fake_agent_dir = neg_workspace / ".opencode" / "agents"
+    fake_agent_dir.mkdir(parents=True, exist_ok=True)
+    fake_agent_profile = fake_agent_dir / "fake-fail.md"
+    fake_agent_profile.write_text("""---
+description: Fake worker that immediately fails (for negative testing)
+mode: primary
+permissions:
+  - action: read
+    resource: "*"
+    effect: allow
+  - action: shell
+    resource: "*"
+    effect: deny
+---
+
+You are a fake worker for negative testing. Immediately exit with an error.
+""", encoding="utf-8")
+    
+    # Create a fake agent config for the negative test
+    fake_config = {
+        "agents": {
+            "fake-fail": {
+                "display_name": "Fake Fail Worker (Negative Test)",
+                "description": "Deterministic fake worker that exits with failure - no network access",
+                "maturity": "preview",
+                "argv": ["python3", "-c", "import sys; print('FAKE WORKER: Simulated failure', file=sys.stderr); sys.exit(1)"],
+                "prompt_transport": "arg",
+                "model_args": [],
+                "cli_agent_args": [],
+                "models": ["fake/fail"],
+                "executable_candidates": ["python3"]
+            }
+        }
+    }
+    fake_config_path = neg_workspace / "fake_agents.json"
+    fake_config_path.write_text(json.dumps(fake_config), encoding="utf-8")
+    
     # Create a separate negative test plan
     neg_plan = jrun([
         "create-plan",
@@ -266,25 +310,25 @@ def negative_acceptance_check(env: dict[str, str]) -> dict:
         "--workspace", str(neg_workspace),
         "--title", "G3 negative acceptance check",
         "--plan-id", "g3-neg",
-        "--executor", f"{CLI}={MODEL}",
-        "--config", CONFIG,
+        "--executor", "fake-fail=fake/fail",
+        "--config", str(fake_config_path),
     ], env)
     
-    # Launch a job that will fail (using bad model) - no live inference
+    # Launch a job that will fail immediately (fake worker)
     neg_launch = jrun([
         "launch",
-        "--cli", CLI,
-        "--model", "9router/__nonexistent__",
-        "--cli-agent", CLI_AGENT,
+        "--cli", "fake-fail",
+        "--model", "fake/fail",
+        "--cli-agent", "fake-fail",
         "--workspace", str(neg_workspace),
         "--task-file", str(TASK),
         "--plan-id", "g3-neg",
         "--checklist-item", "item-001",
-        "--config", CONFIG,
+        "--config", str(fake_config_path),
         "--allow-path", "src/**",
         "--allow-path", "tests/**",
         "--max-changed-files", "10",
-        "--timeout-seconds", "120",
+        "--timeout-seconds", "30",
         "--no-notify",
     ], env)
     
@@ -293,9 +337,9 @@ def negative_acceptance_check(env: dict[str, str]) -> dict:
     # Wait for failure
     run([
         "wait", neg_job_id,
-        "--timeout-seconds", "180",
+        "--timeout-seconds", "60",
         "--poll-seconds", "1",
-    ], env, expect=1, timeout=220)
+    ], env, expect=1, timeout=90)
     
     neg_status = jrun(["status", neg_job_id], env)
     
@@ -322,6 +366,7 @@ def negative_acceptance_check(env: dict[str, str]) -> dict:
         "plan_did_not_advance": plan_blocked,
         "status": "PASS" if (review_blocked and plan_blocked) else "FAIL",
         "fake_worker_used": True,
+        "fake_worker_type": "local_deterministic"
     }
 
 

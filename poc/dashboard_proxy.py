@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import sys
+import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 import urllib.request
@@ -35,10 +37,6 @@ class ProxyHandler(BaseHTTPRequestHandler):
         proxy_headers["Host"] = f"{TARGET_HOST}:{TARGET_PORT}"
         proxy_headers["Origin"] = f"http://{TARGET_HOST}:{TARGET_PORT}"
 
-        # Debug: print headers being sent
-        print(f"Proxy: {self.command} {self.path} -> {target_url}", flush=True)
-        print(f"Proxy: Host={proxy_headers.get('Host')}, Origin={proxy_headers.get('Origin')}, X-Orchestrator-Token={'***' if 'X-Orchestrator-Token' in proxy_headers else 'MISSING'}", flush=True)
-
         # Create request to target
         req = urllib.request.Request(target_url, data=body, method=self.command, headers=proxy_headers)
 
@@ -52,7 +50,6 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(resp.read())
         except urllib.error.HTTPError as e:
-            print(f"Proxy: HTTPError {e.code}: {e.read().decode()}", flush=True)
             self.send_response(e.code)
             for key, value in e.headers.items():
                 if key.lower() not in ("transfer-encoding", "connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te", "trailers", "upgrade"):
@@ -60,7 +57,6 @@ class ProxyHandler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(e.read())
         except Exception as e:
-            print(f"Proxy: Exception: {e}", flush=True)
             self.send_response(502)
             self.send_header("Content-Type", "text/plain")
             self.end_headers()
@@ -71,16 +67,66 @@ class ProxyHandler(BaseHTTPRequestHandler):
         pass
 
 
+def wait_for_dashboard(port: int = 8081, timeout: int = 30) -> bool:
+    """Wait for the dashboard to be ready on the given port."""
+    import urllib.request
+    import urllib.error
+    start = time.time()
+    while time.time() - start < timeout:
+        try:
+            with urllib.request.urlopen(f"http://{TARGET_HOST}:{port}/api/overview", timeout=2):
+                return True
+        except urllib.error.HTTPError as e:
+            # 401 means dashboard is running but requires auth - this is success
+            if e.code == 401:
+                return True
+        except Exception:
+            pass
+        time.sleep(0.5)
+    return False
+
+
+def start_dashboard(env: dict[str, str]) -> subprocess.Popen:
+    """Start the upstream dashboard on port 8081."""
+    import subprocess
+    proc = subprocess.Popen(
+        [
+            "python3", "-B", "/work/agent-orchestrator-poc/plugins/agent-orchestrator/scripts/cli_agent_job.py",
+            "dashboard-web", "--port", "8081", "--no-open"
+        ],
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    return proc
+
+
 def main():
+    # Start the upstream dashboard first
+    env = os.environ.copy()
+    env["AGENT_ORCHESTRATOR_HOME"] = "/g3/state"
+    
+    dashboard_proc = start_dashboard(env)
+    
+    # Wait for dashboard to be ready
+    if not wait_for_dashboard(8081, 30):
+        print("Dashboard failed to start in time", flush=True)
+        dashboard_proc.terminate()
+        sys.exit(1)
+    
+    # Start the proxy
     server = ThreadingHTTPServer(("0.0.0.0", PROXY_PORT), ProxyHandler)
     print(f"Dashboard proxy listening on 0.0.0.0:{PROXY_PORT} -> {TARGET_HOST}:{TARGET_PORT}", flush=True)
+    
     try:
         server.serve_forever(poll_interval=0.5)
     except KeyboardInterrupt:
         pass
     finally:
         server.server_close()
+        dashboard_proc.terminate()
 
 
 if __name__ == "__main__":
+    import os
     main()

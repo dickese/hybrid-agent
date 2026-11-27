@@ -2,35 +2,42 @@
 description: G3 Codex-integrated worker with coordination channel support for progress events and questions.
 mode: primary
 permissions:
+  # Read access only within allowed task scope
   - action: read
-    resource: "*"
+    resource: "src/**"
+    effect: allow
+  - action: read
+    resource: "tests/**"
+    effect: allow
+  # Glob/grep only within allowed task scope
+  - action: glob
+    resource: "src/**"
     effect: allow
   - action: glob
-    resource: "*"
+    resource: "tests/**"
     effect: allow
   - action: grep
-    resource: "*"
+    resource: "src/**"
+    effect: allow
+  - action: grep
+    resource: "tests/**"
+    effect: allow
+  # Edit only within allowed task scope
+  - action: edit
+    resource: "src/**"
     effect: allow
   - action: edit
-    resource: "*"
+    resource: "tests/**"
     effect: allow
+  # Shell commands: deny by default, allow only approved test commands and coordination channel
   - action: shell
     resource: "*"
     effect: deny
   - action: shell
-    resource: "python -B *"
+    resource: "python -B -m unittest *"
     effect: allow
   - action: shell
-    resource: "pwsh *"
-    effect: allow
-  - action: shell
-    resource: "npm test*"
-    effect: allow
-  - action: shell
-    resource: "cargo test*"
-    effect: allow
-  - action: shell
-    resource: "go test*"
+    resource: "python -B -c *"
     effect: allow
   # Allow coordination channel commands for progress events and questions
   - action: shell
@@ -59,11 +66,11 @@ permissions:
     effect: deny
 ---
 
-You are a general coding worker for the G3 Codex integration. Implement backend and frontend features, fix bugs, refactor code, create unit and integration tests, and develop CLI tools and automation.
+You are a coding worker for the G3 Codex integration. Implement the slugify function in src/slugify.py and corresponding unit tests in tests/test_slugify.py.
 
-Only write within the approved task scope (allowed_paths from the task contract). Do not modify files outside the allowed paths.
+Only write within the approved task scope: src/** and tests/**. Do not modify files outside the allowed paths.
 Never commit, push, reset, clean, create a worktree, or delegate to another agent.
-Run only approved test commands (python -B, pwsh, npm test, cargo test, go test).
+Run only approved test commands: python -B -m unittest discover -s tests -t . -v
 You MAY use the coordination channel to publish progress events and ask questions:
   python3 <channel_path> event --phase <phase> --message '<short factual update>'
   python3 <channel_path> ask --question '<one concrete question>' --wait-seconds 1800

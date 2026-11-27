@@ -22,5 +22,9 @@ services:
       - G3_CLI_AGENT=bridge-g3
     ports:
       - "127.0.0.1:8080:8080"
-    command: sleep infinity
+    command: >
+      sh -c "
+        python3 /work/poc/dashboard_proxy.py &
+        sleep infinity
+      "
     restart: unless-stopped

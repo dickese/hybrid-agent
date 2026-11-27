@@ -2,7 +2,7 @@
 
 **Upstream Commit:** `8d9b897c49500e8e1b54ec8028352544db95618d` (tag `v0.7.1`)  
 **Started:** 2026-11-27  
-**Status:** G0✅ G1✅ G2✅ **LIVE_PASS** G3-A✅ G3-B✅ G3-C✅ **G3_READY_FOR_CODEX**
+**Status:** G0✅ G1✅ G2✅ **LIVE_PASS** G3-A✅ **READY** G3-B✅ **OFFLINE_VERIFIED** G3-C⏳ **PENDING_USER_AUTHORIZATION** **G3_READY_FOR_CODEX**
 
 ---
 
@@ -230,7 +230,7 @@ docker run --rm \
 
 ## G3-A — Operational Docker Environment
 
-**Status:** ✅ **COMPLETE** — Persistent container with dashboard access from Windows host (localhost-only binding).
+**Status:** ✅ **READY** — Persistent container with dashboard access from Windows host via proxy (localhost-only binding).
 
 ### Docker Environment
 | Component | Status | Details |
@@ -241,8 +241,9 @@ docker run --rm \
 | Shared Workspace | ✅ Persistent | `D:/tools/hybrid-agent/.runtime/poc-g3/workspace` ↔ `/g3/workspace` (survives restarts) |
 | State | ✅ Persistent | `D:/tools/hybrid-agent/.runtime/poc-g3/state` (survives restarts) |
 | Evidence | ✅ Persistent | `D:/tools/hybrid-agent/.runtime/poc-g3/evidence` |
-| Dashboard | ✅ Windows-accessible | Binds `127.0.0.1:8080:8080` (localhost only, not LAN) |
+| Dashboard | ✅ Windows-accessible | Proxy: `0.0.0.0:8080` → `127.0.0.1:8081`; Docker maps `127.0.0.1:8080:8080` |
 | 9Router | ✅ Container reachable | `host.docker.internal:20128` verified |
+| Offline Bootstrap | ✅ Available | `poc/g3_bootstrap.py` (idempotent, no inference) |
 
 ### Dashboard Access Verification (Windows Host)
 | Check | Status | Details |
@@ -255,6 +256,7 @@ docker run --rm \
 | Blocker status | ✅ | Failed/timed_out/scope_violated shown |
 | Human intervention | ✅ | Answer questions, record review via dashboard |
 | Host binding | ✅ | Restricted to `127.0.0.1` (no LAN exposure) |
+| Proxy validation | ✅ | Host/Origin headers preserved, auth tokens passed through |
 
 **Dashboard URL:** `http://127.0.0.1:8080/#token=<FROM_CONTAINER_LOGS>`
 
@@ -263,36 +265,38 @@ docker run --rm \
 - Stop: `docker compose -f docker-compose.g3.yml down`
 - Restart: `docker compose -f docker-compose.g3.yml restart g3-orchestrator` (preserves workspace/state)
 - Logs: `docker logs hybrid-agent-g3`
+- Bootstrap: `docker compose -f docker-compose.g3.yml exec g3-orchestrator python3 /work/poc/g3_bootstrap.py --verify-only`
 - State survives container restart (mounted volume)
 
 ---
 
 ## G3-B — Codex Integration Adapter
 
-**Status:** ✅ **COMPLETE** — Minimal adapter `poc/g3_codex_adapter.py` corrected for G3 integration defects.
+**Status:** ✅ **OFFLINE_VERIFIED** — Minimal adapter `poc/g3_codex_adapter.py` corrected for G3 integration defects; uses docker-compose for lifecycle.
 
 ### Adapter Capabilities (Thin Wrapper)
 | Capability | Command | Status |
 |------------|---------|--------|
 | Create/inspect durable plan | `create-plan` | ✅ |
-| Dispatch approved OpenCode job | `launch` | ✅ (enforces G3_AUTHORIZED=1, scope validation) |
+| Dispatch approved OpenCode job | `launch` | ✅ (enforces G3_AUTHORIZED=1, durable single-launch, scope validation) |
 | Monitor job progress | `wait` / `status` | ✅ (command-specific timeouts) |
 | Inspect structured job results | `status` | ✅ |
 | Read worker implementation | `verify` (workspace access) | ✅ (shared persistent workspace) |
-| Run deterministic tests | `verify` (test command) | ✅ |
+| Run deterministic tests | `verify` (test command) | ✅ (fixed --test-cmd parsing) |
 | Record independent review | `record-review` | ✅ (no auto-acceptance) |
 | Advance plan after acceptance | `plan-status` | ✅ |
 
 ### Key Design Decisions
 - **No automatic pre-recorded reviews** — Codex must explicitly invoke `record-review`
-- **Native upstream commands** — Wraps unmodified `cli_agent_job.py` via Docker exec
+- **Native upstream commands** — Wraps unmodified `cli_agent_job.py` via docker-compose exec
 - **Persistent container** — Avoids re-creating workspace/state per command
 - **Shared persistent workspace** — `D:/tools/hybrid-agent/.runtime/poc-g3/workspace` ↔ `/g3/workspace`
-- **Profile**: `opencode-9router=9router/agent-build` + `bridge-g3` (coordination channel enabled)
+- **Profile**: `opencode-9router=9router/agent-build` + `bridge-g3` (coordination channel enabled, scoped permissions)
 - **No custom orchestration engine** — Pure upstream Augani workflow
-- **G3 authorization gate** — `launch` requires `G3_AUTHORIZED=1`
+- **G3 authorization gate** — `launch` requires `G3_AUTHORIZED=1` + durable state (max one live job)
 - **Scope validation before dispatch** — Invokes `g3_validate_scope.py` automatically
 - **Command-specific timeouts** — No fixed 300s timeout; adapts to operation
+- **Docker Compose as single lifecycle source** — No `docker run` fallback
 
 ### Verified Profile Configuration
 ```json
@@ -313,17 +317,18 @@ Resolved worker command: `opencode --standalone run --format json "<prompt>" --m
 
 ## G3-C — Live Acceptance Fixture Preparation
 
-**Status:** ✅ **G3_READY_FOR_CODEX** — All integration defects corrected, fixtures and commands verified.
+**Status:** ⏳ **PENDING_USER_AUTHORIZATION** — All integration defects corrected, fixtures and commands verified offline.
 
 ### Fixture Components
 | File | Purpose |
 |------|---------|
 | `poc/g3_task.md` | Compact task contract (slugify implementation, 8 reference cases) |
 | `poc/g3_plan.md` | Single-item checklist plan (`plan-id: g3`, `item-001`, workspace `/g3/workspace`) |
-| `poc/g3_live_verify.py` | Full live verification harness (guarded by `G3_AUTHORIZED=1`, uses shared workspace) |
+| `poc/g3_live_verify.py` | Full live verification harness (guarded by `G3_AUTHORIZED=1`, uses bootstrap) |
 | `poc/g3_validate_scope.py` | Preventive scope validation (contract ↔ runtime allowlist) |
 | `poc/g3_codex_adapter.py` | Codex coordinator CLI adapter (enforces auth, scope, timeouts, shared workspace) |
-| `.opencode/agents/bridge-g3.md` | Execution profile with coordination channel enabled |
+| `poc/g3_bootstrap.py` | Offline runtime bootstrap (idempotent, no inference) |
+| `.opencode/agents/bridge-g3.md` | Execution profile with scoped permissions + coordination channel |
 
 ### G3-C Acceptance Flow (Codex Must Execute)
 1. **Read** task contract (`g3_task.md`)
@@ -337,20 +342,55 @@ Resolved worker command: `opencode --standalone run --format json "<prompt>" --m
 9. **Verify plan advancement** only after acceptance (`plan-status g3`)
 
 ### Negative Acceptance Check (Automated in Harness)
-- Uses deterministic fake worker (nonexistent model) — no live inference
+- Uses deterministic local fake worker (`fake-fail` profile, no network access)
 - Attempts `record-review --verdict accepted` without `--test` → blocked
 - Verifies plan does not advance → `complete: false`
 
 ### Exact G3 Live Command (Requires `G3_AUTHORIZED=1`)
-```bash
-# Adapter-based (Codex coordinator commands):
-G3_AUTHORIZED=1 python3 poc/g3_codex_adapter.py launch --task-file poc/g3_task.md --plan-id g3 --checklist-item item-001 --allowed-paths "src/**" "tests/**" --max-changed-files 10 --timeout-seconds 600
+```powershell
+# Prerequisites (run once):
+docker compose -f docker-compose.g3.yml up -d g3-orchestrator
+docker compose -f docker-compose.g3.yml exec g3-orchestrator python3 /work/poc/g3_bootstrap.py --verify-only
 
-# Full harness (alternative):
-docker compose -f docker-compose.g3.yml run --rm \
-  -e G3_AUTHORIZED=1 \
-  g3-orchestrator \
-  python3 -B /work/poc/g3_live_verify.py
+# 1. Create/select durable plan (plan-id: g3)
+python poc/g3_codex_adapter.py create-plan ^
+  --task-file poc/g3_task.md ^
+  --plan-file poc/g3_plan.md ^
+  --plan-id g3 ^
+  --title "G3 Codex integration live test" ^
+  --executor "opencode-9router=9router/agent-build"
+
+# 2. Dispatch exactly one approved OpenCode job (REQUIRES G3_AUTHORIZED=1)
+$env:G3_AUTHORIZED=1; python poc/g3_codex_adapter.py launch ^
+  --task-file poc/g3_task.md ^
+  --plan-id g3 ^
+  --checklist-item item-001 ^
+  --allowed-paths "src/**" "tests/**" ^
+  --max-changed-files 10 ^
+  --timeout-seconds 600
+
+# 3. Observe execution status (poll or wait)
+python poc/g3_codex_adapter.py wait --job-id <JOB_ID> --timeout-seconds 660 --poll-seconds 2
+
+# 4. Inspect actual source changes (uses host-mounted shared workspace)
+python poc/g3_codex_adapter.py verify ^
+  --workspace D:/tools/hybrid-agent/.runtime/poc-g3/workspace ^
+  --allowed-prefixes "src/" "tests/" ^
+  --required-files "src/slugify.py" "tests/__init__.py" "tests/test_slugify.py" ^
+  --test-cmd "python -B -m unittest discover -s tests -t . -v"
+
+# 5. Run deterministic tests (included in verify)
+
+# 6. Perform independent review (MANUAL - actual Codex)
+python poc/g3_codex_adapter.py record-review ^
+  --job-id <JOB_ID> ^
+  --verdict accepted|rejected ^
+  --reviewer codex-g3-live ^
+  --test-result "python -B -m unittest discover -s tests -t . -v: OK (Ran N tests)" ^
+  --notes "Independent Codex review: scoped files only, deterministic tests pass, no out-of-scope changes."
+
+# 7. Verify plan advancement only after acceptance
+python poc/g3_codex_adapter.py plan-status --plan-id g3
 ```
 
 ---
@@ -364,9 +404,9 @@ docker compose -f docker-compose.g3.yml run --rm \
 | G2 Profile | ✅ STATIC_VERIFIED | `poc/evidence/g2_resolved_command.txt`, `poc/evidence/g2_container_preflight.txt` | Profile schema, doctor, models, resolved argv |
 | G2 Negative | ✅ OFFLINE_PASS | `.runtime/poc-g2/evidence/g2_negative_summary.json` | Real adapter, no inference |
 | G2 Live | ✅ **LIVE_PASS** | `.runtime/poc-g2/evidence/g2_live_summary.json` | One inference, 9 tests + 8 assertions PASS, review accepted, plan done, dashboard OK |
-| G3-A | ✅ **COMPLETE** | `docker-compose.g3.yml`, `poc/Dockerfile.g3`, `G3_START_CODEX.md` | Persistent container, Windows dashboard access (localhost-only) |
-| G3-B | ✅ **COMPLETE** | `poc/g3_codex_adapter.py`, `.opencode/agents/bridge-g3.md` | Minimal adapter, coordination channel enabled, auth/scope/timeout corrected |
-| G3-C | ✅ **G3_READY_FOR_CODEX** | `poc/g3_task.md`, `poc/g3_plan.md`, `poc/g3_live_verify.py`, `poc/g3_validate_scope.py` | All integration defects corrected; offline verification complete |
+| G3-A | ✅ **READY** | `docker-compose.g3.yml`, `poc/Dockerfile.g3`, `poc/g3_bootstrap.py`, `G3_START_CODEX.md` | Persistent container, Windows dashboard via proxy (localhost-only) |
+| G3-B | ✅ **OFFLINE_VERIFIED** | `poc/g3_codex_adapter.py`, `.opencode/agents/bridge-g3.md`, `poc/g3_validate_scope.py` | Adapter uses docker-compose, durable auth, scoped permissions |
+| G3-C | ⏳ **PENDING_USER_AUTHORIZATION** | `poc/g3_task.md`, `poc/g3_plan.md`, `poc/g3_live_verify.py`, `poc/g3_bootstrap.py` | All integration defects corrected; offline verification complete |
 
 ---
 
@@ -409,18 +449,22 @@ docker compose -f docker-compose.g3.yml run --rm \
 | 4 | OpenCode v2.2.0 + 9Router profile + route verified | ✅ STATIC_VERIFIED |
 | 5 | Negative-path adapter integration (real binary, no inference) | ✅ PASS |
 | 6 | Live inference run + independent verification (G2) | ✅ **LIVE_PASS** (2026-11-27T01:58:43Z) |
-| 7 | Dashboard progress (internal + Windows host) | ✅ PASS (G3-A: 127.0.0.1:8080 bind + port mapping) |
+| 7 | Dashboard progress (internal + Windows host) | ✅ PASS (G3-A: proxy 0.0.0.0:8080 → 127.0.0.1:8081, Docker maps 127.0.0.1:8080) |
 | 8 | Recovery/permission limitations documented | ✅ (see G2/G3 limitation notes) |
-| 9 | Codex coordinator + independent review commands prepared | ✅ G3-B COMPLETE |
+| 9 | Codex coordinator + independent review commands prepared | ✅ G3-B OFFLINE_VERIFIED |
 | 10 | Task-scope validation (preventive, before dispatch) | ✅ G3-B: `g3_validate_scope.py` invoked by adapter |
 | 11 | Coordination channel enabled safely | ✅ G3-B: `bridge-g3` profile allows channel commands only |
-| 12 | G3-C live acceptance fixture prepared | ✅ **G3_READY_FOR_CODEX** |
+| 12 | G3-C live acceptance fixture prepared | ✅ **PENDING_USER_AUTHORIZATION** |
 | 13 | Shared persistent workspace mapping | ✅ Host `D:/tools/hybrid-agent/.runtime/poc-g3/workspace` ↔ Container `/g3/workspace` |
 | 14 | Unified runtime initialization | ✅ AGENT_ORCHESTRATOR_HOME, config, profile, model, workspace, provider connectivity |
 | 15 | Correct adapter timeout handling | ✅ Command-specific timeouts (no fixed 300s) |
 | 16 | Dashboard localhost restriction | ✅ `127.0.0.1:8080:8080` in docker-compose |
-| 17 | G3 authorization enforcement | ✅ Adapter `launch` requires `G3_AUTHORIZED=1` |
-| 18 | No automatic acceptance | ✅ Harness requires actual Codex review, negative check uses fake worker |
+| 17 | G3 authorization enforcement | ✅ Adapter `launch` requires `G3_AUTHORIZED=1` + durable state |
+| 18 | No automatic acceptance | ✅ Harness requires actual Codex review, negative check uses local fake worker |
+| 19 | Docker Compose as single lifecycle source | ✅ No `docker run` fallback in adapter |
+| 20 | Offline bootstrap available | ✅ `poc/g3_bootstrap.py` (idempotent, no inference) |
+| 21 | Worker permissions scoped to task | ✅ `bridge-g3` restricts read/glob/grep/edit to src/**, tests/** |
+| 22 | Test command parsing fixed | ✅ `--test-cmd` accepts quoted string, parsed with shlex |
 
 ---
 
@@ -435,28 +479,33 @@ docker compose -f docker-compose.g3.yml run --rm \
 
 ## Final Recommendation (Current)
 
-**GO** — G3-A and G3-B complete, G3-C ready for authorization.
+**GO** — G3-A READY, G3-B OFFLINE_VERIFIED, G3-C PENDING_USER_AUTHORIZATION.
 
 ### Verified Capabilities
 - ✅ **Persistent Docker environment** with durable plan/worker workspace (survives restarts)
-- ✅ **Windows-host dashboard access** at `http://localhost:8080/#token=<TOKEN>` (authenticated, 401 unauth)
+- ✅ **Windows-host dashboard access** at `http://127.0.0.1:8080/#token=<TOKEN>` (authenticated, 401 unauth, via proxy)
 - ✅ **Coordination channel safely enabled** — only `event` and `ask` commands permitted via `bridge-g3` profile
 - ✅ **Task-scope validation** — preventive isolation matching runtime allowlist to task contract; protected paths denied
-- ✅ **Minimal Codex adapter** — thin wrapper over upstream commands, no custom orchestration engine
+- ✅ **Minimal Codex adapter** — thin wrapper over upstream commands via docker-compose, no custom orchestration engine
 - ✅ **Recovery behavior verified** — container restart preserves state; failed workers not auto-accepted; retry budgets bounded; writer serialization enforced
+- ✅ **Offline bootstrap** — `g3_bootstrap.py` initializes workspace, config, verifies profile without inference
+- ✅ **Durable single-launch authorization** — `G3_AUTHORIZED=1` + state file prevents duplicate live jobs
+- ✅ **Scoped worker permissions** — `bridge-g3` restricts read/glob/grep/edit to `src/**`, `tests/**` only
+- ✅ **Local deterministic fake worker** — negative acceptance check uses no network access
 
 ### Actual Dashboard Accessibility
-- **URL**: `http://localhost:8080/#token=<FROM_DOCKER_LOGS>`
+- **URL**: `http://127.0.0.1:8080/#token=<FROM_DOCKER_LOGS>`
 - **Verified from Windows host**: Authenticated 200, unauthenticated 401, projects listed, job ID present, progress visible, review status visible, blocker status visible, human intervention controls functional
+- **Architecture**: Upstream dashboard on `127.0.0.1:8081` → Python proxy on `0.0.0.0:8080` → Docker maps `127.0.0.1:8080:8080` → Windows host
 
 ### Coordination-Channel Status
 - **G2 (`bridge-build`)**: BLOCKED — profile denies shell commands needed for channel
 - **G3 (`bridge-g3`)**: ENABLED — profile allows ONLY `python3 *channel.py event*` and `python3 *channel.py ask*` (no broad shell)
 
 ### Persistent Container/Workspace Behavior
-- Container `hybrid-agent-g3` runs persistently (`sleep infinity`)
+- Container `hybrid-agent-g3` runs persistently (`sleep infinity` + dashboard proxy)
 - State mounted at `D:/tools/hybrid-agent/.runtime/poc-g3/state`
-- Workspace created fresh per job in `/tmp/g3-workspace` (git-initialized, `.opencode` copied)
+- Shared workspace at `D:/tools/hybrid-agent/.runtime/poc-g3/workspace` ↔ `/g3/workspace` (persists across restarts)
 - Plan/job/events survive container restart
 - No orphan workers (single-writer enforced by upstream)
 - No automatic commit/push/worktrees
@@ -467,15 +516,17 @@ docker compose -f docker-compose.g3.yml run --rm \
 - **Protected paths** (`.opencode/**`, `AGENTS.md`, `config/**`, etc.) denied by default for coding tasks
 - **Max 3 retries per checklist item** enforced by upstream
 - **User can stop execution** via `cancel` command; workspace preserved for inspection
+- **Maximum one live worker job** for G3-C fixture (enforced by adapter + durable state)
 
 ### Custom Operational Adapter Inventory
 | Adapter | Purpose | Lines |
 |---------|---------|-------|
-| `poc/g3_codex_adapter.py` | Codex → Augani Docker CLI wrapper | ~280 |
+| `poc/g3_codex_adapter.py` | Codex → Augani Docker CLI wrapper (docker-compose) | ~320 |
 | `poc/g3_validate_scope.py` | Preventive task-scope validation | ~85 |
-| `poc/g3_live_verify.py` | Full G3-C live verification harness | ~420 |
-| `docker-compose.g3.yml` | Container orchestration | 45 |
-| `.opencode/agents/bridge-g3.md` | Coordination-enabled execution profile | 60 |
+| `poc/g3_live_verify.py` | Full G3-C live verification harness | ~450 |
+| `poc/g3_bootstrap.py` | Offline runtime bootstrap | ~180 |
+| `docker-compose.g3.yml` | Container orchestration (incl. dashboard proxy) | 50 |
+| `.opencode/agents/bridge-g3.md` | Scoped execution profile + coordination channel | 70 |
 
 ### Exact Remaining G3-C Actions
 1. User authorizes G3 live inference: `G3_AUTHORIZED=1`
@@ -486,6 +537,6 @@ docker compose -f docker-compose.g3.yml run --rm \
 6. Confirm dashboard shows full lifecycle from Windows host
 
 ### Evidence References
-- G3-A: `docker-compose.g3.yml`, `poc/Dockerfile.g3`, `G3_START_CODEX.md`
+- G3-A: `docker-compose.g3.yml`, `poc/Dockerfile.g3`, `poc/g3_bootstrap.py`, `G3_START_CODEX.md`
 - G3-B: `poc/g3_codex_adapter.py`, `.opencode/agents/bridge-g3.md`, `poc/g3_validate_scope.py`
-- G3-C: `poc/g3_task.md`, `poc/g3_plan.md`, `poc/g3_live_verify.py`
+- G3-C: `poc/g3_task.md`, `poc/g3_plan.md`, `poc/g3_live_verify.py`, `poc/g3_bootstrap.py`
