@@ -2,7 +2,7 @@
 
 **Upstream Commit:** `8d9b897c49500e8e1b54ec8028352544db95618d` (tag `v0.7.1`)  
 **Started:** 2026-11-27  
-**Status:** G0✅ G1✅ G2✅ **LIVE_PASS** G3-A✅ **READY** G3-B✅ **OFFLINE_VERIFIED** G3-C⏳ **PENDING_USER_AUTHORIZATION** **G3_READY_FOR_CODEX**
+**Status:** G0✅ G1✅ G2✅ **LIVE_PASS** G3-A✅ **READY** G3-B✅ **OFFLINE_VERIFIED** G3-C **G3_LIVE_PASS**
 
 ---
 
@@ -315,9 +315,9 @@ Resolved worker command: `opencode --standalone run --format json "<prompt>" --m
 
 ---
 
-## G3-C — Live Acceptance Fixture Preparation
+## G3-C — Live Acceptance
 
-**Status:** ⏳ **PENDING_USER_AUTHORIZATION** — All integration defects corrected, fixtures and commands verified offline.
+**Status:** **G3_LIVE_PASS**. Codex independently accepted the result of one authorized OpenCode job.
 
 ### Fixture Components
 | File | Purpose |
@@ -406,7 +406,7 @@ python poc/g3_codex_adapter.py plan-status --plan-id g3
 | G2 Live | ✅ **LIVE_PASS** | `.runtime/poc-g2/evidence/g2_live_summary.json` | One inference, 9 tests + 8 assertions PASS, review accepted, plan done, dashboard OK |
 | G3-A | ✅ **READY** | `docker-compose.g3.yml`, `poc/Dockerfile.g3`, `poc/g3_bootstrap.py`, `G3_START_CODEX.md` | Persistent container, Windows dashboard via proxy (localhost-only) |
 | G3-B | ✅ **OFFLINE_VERIFIED** | `poc/g3_codex_adapter.py`, `.opencode/agents/bridge-g3.md`, `poc/g3_validate_scope.py` | Adapter uses docker-compose, durable auth, scoped permissions |
-| G3-C | ⏳ **PENDING_USER_AUTHORIZATION** | `poc/g3_task.md`, `poc/g3_plan.md`, `poc/g3_live_verify.py`, `poc/g3_bootstrap.py` | All integration defects corrected; offline verification complete |
+| G3-C | **G3_LIVE_PASS** | `.runtime/poc-g3/evidence/g3_codex_live_summary.json` | One job, 8 unit tests and 8 independent assertions passed, review accepted, plan done |
 
 ---
 
@@ -454,7 +454,7 @@ python poc/g3_codex_adapter.py plan-status --plan-id g3
 | 9 | Codex coordinator + independent review commands prepared | ✅ G3-B OFFLINE_VERIFIED |
 | 10 | Task-scope validation (preventive, before dispatch) | ✅ G3-B: `g3_validate_scope.py` invoked by adapter |
 | 11 | Coordination channel enabled safely | ✅ G3-B: `bridge-g3` profile allows channel commands only |
-| 12 | G3-C live acceptance fixture prepared | ✅ **PENDING_USER_AUTHORIZATION** |
+| 12 | G3-C live acceptance | **G3_LIVE_PASS** |
 | 13 | Shared persistent workspace mapping | ✅ Host `D:/tools/hybrid-agent/.runtime/poc-g3/workspace` ↔ Container `/g3/workspace` |
 | 14 | Unified runtime initialization | ✅ AGENT_ORCHESTRATOR_HOME, config, profile, model, workspace, provider connectivity |
 | 15 | Correct adapter timeout handling | ✅ Command-specific timeouts (no fixed 300s) |
@@ -472,14 +472,14 @@ python poc/g3_codex_adapter.py plan-status --plan-id g3
 
 | Blocker | Impact | Resolution |
 |---------|--------|------------|
-| **B1: G3 live inference authorization** | G3-C live run cannot proceed without explicit user approval (one bounded inference call). | Request approval for **one** bounded inference call with the exact command in `G3_START_CODEX.md`. |
+| **B1: G3 live inference authorization** | Approval granted for one bounded job. | Resolved by the single approved dispatch. |
 | **B2: Channel progress/question denied by `bridge-build` profile (G2)** | G2 worker cannot emit structured progress or ask questions via coordination channel. | **RESOLVED in G3**: `bridge-g3` profile explicitly allows `python3 *channel.py event*` and `python3 *channel.py ask*` only. No broad shell permissions granted. |
 
 ---
 
 ## Final Recommendation (Current)
 
-**GO** — G3-A READY, G3-B OFFLINE_VERIFIED, G3-C PENDING_USER_AUTHORIZATION.
+**GO** — G3-A READY, G3-B OFFLINE_VERIFIED, G3-C **G3_LIVE_PASS**
 
 ### Verified Capabilities
 - ✅ **Persistent Docker environment** with durable plan/worker workspace (survives restarts)
@@ -528,15 +528,14 @@ python poc/g3_codex_adapter.py plan-status --plan-id g3
 | `docker-compose.g3.yml` | Container orchestration (incl. dashboard proxy) | 50 |
 | `.opencode/agents/bridge-g3.md` | Scoped execution profile + coordination channel | 70 |
 
-### Exact Remaining G3-C Actions
-1. User authorizes G3 live inference: `G3_AUTHORIZED=1`
-2. Codex runs `create-plan` → `launch` → `wait` → `verify` (via `g3_codex_adapter.py`)
-3. **Actual Codex** performs independent review of diff + test results
-4. Codex runs `record-review` with verdict and `--test` evidence
-5. Verify plan advances to `complete`/`done` only after acceptance
-6. Confirm dashboard shows full lifecycle from Windows host
+### G3-C Live Result
+
+- Plan g3, item item-001, job opencode-9router-20261127-043745-f93cad.
+- Worker opencode-9router, model 9router/agent-build, profile bridge-g3, duration 48.771 seconds.
+- Four files within scope. All 8 unit tests and all 8 independent assertions passed.
+- The Windows dashboard showed progress and acceptance. The durable plan advanced to done after review.
 
 ### Evidence References
 - G3-A: `docker-compose.g3.yml`, `poc/Dockerfile.g3`, `poc/g3_bootstrap.py`, `G3_START_CODEX.md`
 - G3-B: `poc/g3_codex_adapter.py`, `.opencode/agents/bridge-g3.md`, `poc/g3_validate_scope.py`
-- G3-C: `poc/g3_task.md`, `poc/g3_plan.md`, `poc/g3_live_verify.py`, `poc/g3_bootstrap.py`
+- G3-C: .runtime/poc-g3/evidence/g3_codex_live_summary.json

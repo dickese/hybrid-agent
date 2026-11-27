@@ -70,3 +70,14 @@ All files under `.runtime/evidence/`; raw run artifacts under `.runtime/runs/`.
 - `python poc/g3_bootstrap.py --verify-only --json` → READY (no inference)
 - `python poc/g3_bootstrap.py --json` → READY (initializes workspace)
 - `docker compose -f docker-compose.g3.yml exec g3-orchestrator python3 /work/poc/g3_bootstrap.py --verify-only --json` → READY
+
+## G3-C Live Codex Acceptance
+
+| Evidence under .runtime/poc-g3/evidence/ | What it records |
+|---|---|
+| g3_codex_live_summary.json | G3_LIVE_PASS, authorization, worker timing, scope, and progress |
+| g3_codex_git_status.txt | Four changed files |
+| g3_codex_unittest.txt and g3_codex_assertions.txt | 8 unit tests and 8 independent reference assertions passed |
+| g3_codex_review.json | Accepted Codex verdict with test evidence |
+| g3_codex_plan_before_review.json and g3_codex_plan_after_review.json | Plan advanced to done after review |
+| g3_codex_dashboard_before_review.json and g3_codex_dashboard_after_review.json | Windows dashboard visibility and acceptance |
