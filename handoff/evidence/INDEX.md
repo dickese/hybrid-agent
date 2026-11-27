@@ -81,3 +81,14 @@ All files under `.runtime/evidence/`; raw run artifacts under `.runtime/runs/`.
 | g3_codex_review.json | Accepted Codex verdict with test evidence |
 | g3_codex_plan_before_review.json and g3_codex_plan_after_review.json | Plan advanced to done after review |
 | g3_codex_dashboard_before_review.json and g3_codex_dashboard_after_review.json | Windows dashboard visibility and acceptance |
+
+## G4-A Local Reconciliation
+
+| Evidence | Observed result |
+|---|---|
+| [G4 plan and handoff](../G4_PLAN.md) | Component dispositions, roles, workflow and permission policies, phase contracts, and the G4-B dispatch gate |
+| `.runtime/poc-g4/state/plans/g4/plan.json` | Offline Augani `create-plan` and `plan-status` both exited 0. G4-A is done, four items are pending, and there are zero job IDs. |
+| Git intake | `master` at `9dc7dba299d1d66a5572a863a618ed9c8f106341`, with empty tracked and staged diffs and three pre-existing untracked files |
+| Writer intake | One terminal Windows Bridge run, two lock files available, five terminal G2/G3 jobs, and no matching active external worker observed |
+
+G4 routing R01–R07, working-tree safety W01–W05, verification and recovery V01–V06, and compatibility C01–C02 are **NOT_RUN**. The reconciliation and offline plan creation did not exercise a G4 worker or change G3 state.
