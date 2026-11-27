@@ -1,0 +1,25 @@
+version: '3.8'
+
+services:
+  g3-orchestrator:
+    build:
+      context: .
+      dockerfile: poc/Dockerfile.g3
+    image: hybrid-agent-g3:0.1
+    container_name: hybrid-agent-g3
+    volumes:
+      - "D:/tools/hybrid-agent:/work:ro"
+      - "D:/tools/hybrid-agent/.runtime/poc-g3:/g3"
+      - "C:/Users/ANH DUC/.config/opencode/opencode.json:/run/opencode-global.json:ro"
+      - "D:/tools/hybrid-agent/.runtime/secrets/9router.key:/run/secrets/9router.key:ro"
+    environment:
+      - RUNNER=/work/agent-orchestrator-poc/plugins/agent-orchestrator/scripts/cli_agent_job.py
+      - CONFIG=/work/poc/opencode_agents.json
+      - G3_BASE=/g3
+      - G3_CLI=opencode-9router
+      - G3_MODEL=9router/agent-build
+      - G3_CLI_AGENT=bridge-g3
+    ports:
+      - "8080:8080"
+    command: sleep infinity
+    restart: unless-stopped
