@@ -48,3 +48,20 @@ All files under `.runtime/evidence/`; raw run artifacts under `.runtime/runs/`.
 | `a4-recovery-drill.md` | 8 recovery scenarios verified with test evidence |
 
 **Test command**: `python -m unittest tests.test_recovery -v` → 8 tests OK
+
+## G3 — Codex Integration (Offline Verification)
+
+| File | Description |
+|------|-------------|
+| `.runtime/poc-g3/evidence/g3_scope_validation.json` | Scope validation (contract ↔ runtime allowlist exact match, protected paths denied) |
+| `.runtime/poc-g3/evidence/g3_adapter_timeout_test.json` | Adapter timeout handling (command-specific, no fixed 300s) |
+| `.runtime/poc-g3/evidence/g3_auth_gate_test.json` | G3 authorization gate (launch requires G3_AUTHORIZED=1) |
+| `.runtime/poc-g3/evidence/g3_workspace_persistence.json` | Shared workspace mapping (host ↔ container, survives restart) |
+| `.runtime/poc-g3/evidence/g3_dashboard_localhost.json` | Dashboard localhost restriction (127.0.0.1:8080:8080) |
+| `.runtime/poc-g3/evidence/g3_negative_acceptance.json` | Negative acceptance check (fake worker, no auto-acceptance) |
+
+**Test commands**:
+- `python poc/g3_validate_scope.py poc/g3_task.md '["--allow-path", "src/**", "--allow-path", "tests/**"]'` → PASS
+- `python poc/g3_validate_scope.py poc/g3_task.md '["--allow-path", "src/**", "--allow-path", ".opencode/**"]'` → FAIL (protected path)
+- `python poc/g3_codex_adapter.py --help` → All commands available
+- `python poc/g3_codex_adapter.py dashboard-url` → Shows localhost-only URL

@@ -1,0 +1,12 @@
+# Isolated Linux runtime for the Augani PoC (G2 live verification).
+# Disposable: no host mutation, no changes to the Windows 9Router or OpenCode install.
+# Mirrors the installed Windows toolchain: OpenCode CLI 2.2.0 + Python 3.11 + git.
+FROM node:22-bookworm-slim
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends python3 python-is-python3 git ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN npm install -g @opencode/cli@2.2.0
+
+WORKDIR /work

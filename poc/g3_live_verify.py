@@ -37,6 +37,9 @@ EVIDENCE = BASE / "evidence"
 TASK = pathlib.Path("/work/poc/g3_task.md")
 PLAN = pathlib.Path("/work/poc/g3_plan.md")
 
+# Shared persistent workspace (container path)
+SHARED_WORKSPACE = pathlib.Path("/g3/workspace")
+
 CLI = os.environ.get("G3_CLI", "opencode-9router")
 MODEL = os.environ.get("G3_MODEL", "9router/agent-build")
 CLI_AGENT = os.environ.get("G3_CLI_AGENT", "bridge-g3")
@@ -56,20 +59,29 @@ def utc_now() -> str:
 
 
 def prepare_workspace_and_config(env: dict[str, str]) -> pathlib.Path:
-    """Create an isolated workspace in container tmpfs, copy .opencode agents, init git."""
-    workspace = pathlib.Path("/tmp/g3-workspace")
-    if workspace.exists():
-        shutil.rmtree(workspace)
-    workspace.mkdir(parents=True)
-    (workspace / "README.md").write_text("# G3 disposable workspace\n", encoding="utf-8")
-    (workspace / ".gitignore").write_text("__pycache__/\n*.pyc\n.pytest_cache/\n", encoding="utf-8")
-    shutil.copytree("/work/.opencode", workspace / ".opencode", dirs_exist_ok=True)
-    subprocess.run(["git", "init", "-q"], cwd=workspace, check=True)
-    subprocess.run(["git", "config", "user.email", "poc@example.test"], cwd=workspace, check=True)
-    subprocess.run(["git", "config", "user.name", "PoC"], cwd=workspace, check=True)
-    subprocess.run(["git", "add", "-A"], cwd=workspace, check=True)
-    subprocess.run(["git", "commit", "-qm", "seed"], cwd=workspace, check=True)
-
+    """Prepare the shared persistent workspace, copy .opencode agents, init git if needed.
+    
+    Does not automatically delete or recreate an existing workspace containing task results.
+    Initializes a fresh disposable fixture only when necessary (first run or explicit reset).
+    """
+    workspace = SHARED_WORKSPACE
+    
+    # Initialize workspace if not already initialized
+    if not (workspace / ".git").exists():
+        workspace.mkdir(parents=True, exist_ok=True)
+        (workspace / "README.md").write_text("# G3 disposable workspace\n", encoding="utf-8")
+        (workspace / ".gitignore").write_text("__pycache__/\n*.pyc\n.pytest_cache/\n", encoding="utf-8")
+        shutil.copytree("/work/.opencode", workspace / ".opencode", dirs_exist_ok=True)
+        subprocess.run(["git", "init", "-q"], cwd=workspace, check=True)
+        subprocess.run(["git", "config", "user.email", "poc@example.test"], cwd=workspace, check=True)
+        subprocess.run(["git", "config", "user.name", "PoC"], cwd=workspace, check=True)
+        subprocess.run(["git", "add", "-A"], cwd=workspace, check=True)
+        subprocess.run(["git", "commit", "-qm", "seed"], cwd=workspace, check=True)
+    else:
+        # Workspace exists - verify it's clean or has expected state
+        # Don't automatically reset - preserve worker-created files for Codex inspection
+        pass
+    
     cfg_dir = pathlib.Path("/tmp/cfg")
     cfg_dir.mkdir(parents=True, exist_ok=True)
     source = pathlib.Path("/run/opencode-global.json").read_text(encoding="utf-8")
@@ -229,25 +241,42 @@ def dashboard_check_windows_host(job_id: str, env: dict[str, str]) -> dict:
 
 
 def negative_acceptance_check(env: dict[str, str]) -> dict:
-    """Negative acceptance check: verify that rejected review blocks plan advancement."""
+    """Negative acceptance check: verify that rejected review blocks plan advancement.
+    
+    Uses a deterministic fake worker (nonexistent model) - no live inference.
+    """
+    # Use a separate workspace for negative check to not pollute shared workspace
+    neg_workspace = pathlib.Path("/tmp/g3-neg-workspace")
+    if neg_workspace.exists():
+        shutil.rmtree(neg_workspace)
+    neg_workspace.mkdir(parents=True)
+    (neg_workspace / "README.md").write_text("# G3 negative check workspace\n", encoding="utf-8")
+    (neg_workspace / ".gitignore").write_text("__pycache__/\n*.pyc\n.pytest_cache/\n", encoding="utf-8")
+    shutil.copytree("/work/.opencode", neg_workspace / ".opencode", dirs_exist_ok=True)
+    subprocess.run(["git", "init", "-q"], cwd=neg_workspace, check=True)
+    subprocess.run(["git", "config", "user.email", "poc@example.test"], cwd=neg_workspace, check=True)
+    subprocess.run(["git", "config", "user.name", "PoC"], cwd=neg_workspace, check=True)
+    subprocess.run(["git", "add", "-A"], cwd=neg_workspace, check=True)
+    subprocess.run(["git", "commit", "-qm", "seed"], cwd=neg_workspace, check=True)
+    
     # Create a separate negative test plan
     neg_plan = jrun([
         "create-plan",
         "--plan-file", str(PLAN),
-        "--workspace", "/tmp/g3-neg-workspace",
+        "--workspace", str(neg_workspace),
         "--title", "G3 negative acceptance check",
         "--plan-id", "g3-neg",
         "--executor", f"{CLI}={MODEL}",
         "--config", CONFIG,
     ], env)
     
-    # Launch a job that will fail (using bad model)
+    # Launch a job that will fail (using bad model) - no live inference
     neg_launch = jrun([
         "launch",
         "--cli", CLI,
         "--model", "9router/__nonexistent__",
         "--cli-agent", CLI_AGENT,
-        "--workspace", "/tmp/g3-neg-workspace",
+        "--workspace", str(neg_workspace),
         "--task-file", str(TASK),
         "--plan-id", "g3-neg",
         "--checklist-item", "item-001",
@@ -292,6 +321,7 @@ def negative_acceptance_check(env: dict[str, str]) -> dict:
         "review_without_test_blocked": review_blocked,
         "plan_did_not_advance": plan_blocked,
         "status": "PASS" if (review_blocked and plan_blocked) else "FAIL",
+        "fake_worker_used": True,
     }
 
 

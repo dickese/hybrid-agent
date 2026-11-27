@@ -1,0 +1,22 @@
+{
+  "agents": {
+    "opencode-9router": {
+      "display_name": "OpenCode v2.2.0 via 9Router (PoC)",
+      "description": "Minimal adapter for the installed OpenCode v2.2.0 `run` subcommand. Mirrors the verified Hybrid Agent invocation: opencode --standalone run --format json <prompt> --model <route> --agent <profile>.",
+      "maturity": "preview",
+      "argv": [
+        "opencode",
+        "--standalone",
+        "run",
+        "--format",
+        "json",
+        "{prompt_text}"
+      ],
+      "prompt_transport": "arg",
+      "model_args": ["--model", "{model}"],
+      "cli_agent_args": ["--agent", "{cli_agent}"],
+      "models": ["9router/agent-build"],
+      "executable_candidates": ["opencode", "opencode.exe"]
+    }
+  }
+}

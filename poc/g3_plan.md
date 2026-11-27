@@ -7,7 +7,7 @@ g3
 G3 Codex integration live test
 
 ## Workspace
-/tmp/g3-workspace
+/g3/workspace
 
 ## Executor
 opencode-9router=9router/agent-build

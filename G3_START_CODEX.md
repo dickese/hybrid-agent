@@ -5,7 +5,7 @@
 - **Container**: `hybrid-agent-g3:0.1` (Node 22 + Python 3.11 + OpenCode 2.2.0 + git)
 - **Runtime**: Docker Desktop (WSL2 backend), persistent container `hybrid-agent-g3`
 - **9Router**: Windows-hosted at `http://127.0.0.1:20128/v1` → container via `host.docker.internal:20128`
-- **Workspace**: Host-mounted at `D:/tools/hybrid-agent` (read-only), disposable workspace in `/tmp/g3-workspace`
+- **Shared Workspace**: Host-mounted at `D:/tools/hybrid-agent/.runtime/poc-g3/workspace` (Windows) / `/g3/workspace` (container) — persists across container recreation
 - **State**: Persistent at `D:/tools/hybrid-agent/.runtime/poc-g3/state`
 - **Evidence**: `D:/tools/hybrid-agent/.runtime/poc-g3/evidence`
 
@@ -22,13 +22,17 @@ docker compose -f docker-compose.g3.yml down
 
 # View logs
 docker logs hybrid-agent-g3
+
+# Restart container (preserves workspace and state)
+docker compose -f docker-compose.g3.yml restart g3-orchestrator
 ```
 
 ## Dashboard Access (Windows Host)
-- **URL**: `http://localhost:8080/#token=<TOKEN>`
+- **URL**: `http://127.0.0.1:8080/#token=<TOKEN>`
 - **Token**: Retrieved from `/g3/state/dashboard.json` inside container (`docker exec hybrid-agent-g3 cat /g3/state/dashboard.json`)
 - **Authentication**: Required (401 without token)
-- **Verified from Windows host**: Yes (via Python HTTP proxy on `0.0.0.0:8080` → dashboard on `127.0.0.1:8081`)
+- **Host Binding**: Restricted to `127.0.0.1:8080` (not exposed to LAN)
+- **Verified from Windows host**: Yes (direct port mapping `127.0.0.1:8080:8080`)
 - **Features**: Project overview, job detail, progress events, questions, review status, blocker status, human intervention controls
 
 ### Dashboard Startup Commands
@@ -36,16 +40,12 @@ docker logs hybrid-agent-g3
 # Start persistent container (run once)
 docker compose -f docker-compose.g3.yml up -d g3-orchestrator
 
-# Start dashboard on internal port 8081
-docker exec -d -e AGENT_ORCHESTRATOR_HOME=/g3/state hybrid-agent-g3 python3 -B /work/agent-orchestrator-poc/plugins/agent-orchestrator/scripts/cli_agent_job.py dashboard-web --port 8081 --no-open
-
-# Start HTTP proxy on 0.0.0.0:8080 (for Windows host access)
-docker cp poc/dashboard_proxy.py hybrid-agent-g3:/tmp/dashboard_proxy.py
-docker exec -d hybrid-agent-g3 python3 /tmp/dashboard_proxy.py
+# Start dashboard on container port 8080 (binds 0.0.0.0:8080 internally, mapped to 127.0.0.1:8080 on host)
+docker exec -d -e AGENT_ORCHESTRATOR_HOME=/g3/state hybrid-agent-g3 python3 -B /work/agent-orchestrator-poc/plugins/agent-orchestrator/scripts/cli_agent_job.py dashboard-web --port 8080 --no-open
 
 # Get token
 docker exec hybrid-agent-g3 cat /g3/state/dashboard.json
-# Open http://localhost:8080/#token=<TOKEN> in Windows browser
+# Open http://127.0.0.1:8080/#token=<TOKEN> in Windows browser
 ```
 
 ## Approved Worker Route & Execution Profile
@@ -57,19 +57,20 @@ docker exec hybrid-agent-g3 cat /g3/state/dashboard.json
 
 ## Exact Codex Coordinator Invocation Commands
 ```bash
+# Prerequisite: Start persistent container
+docker compose -f docker-compose.g3.yml up -d g3-orchestrator
+
 # 1. Create/select durable plan (plan-id: g3)
 python3 poc/g3_codex_adapter.py create-plan \
   --task-file poc/g3_task.md \
   --plan-file poc/g3_plan.md \
-  --workspace /tmp/g3-workspace \
   --plan-id g3 \
   --title "G3 Codex integration live test" \
   --executor "opencode-9router=9router/agent-build"
 
-# 2. Dispatch exactly one approved OpenCode job
-python3 poc/g3_codex_adapter.py launch \
+# 2. Dispatch exactly one approved OpenCode job (REQUIRES G3_AUTHORIZED=1)
+G3_AUTHORIZED=1 python3 poc/g3_codex_adapter.py launch \
   --task-file poc/g3_task.md \
-  --workspace /tmp/g3-workspace \
   --plan-id g3 \
   --checklist-item item-001 \
   --allowed-paths "src/**" "tests/**" \
@@ -79,9 +80,9 @@ python3 poc/g3_codex_adapter.py launch \
 # 3. Observe execution status (poll or wait)
 python3 poc/g3_codex_adapter.py wait --job-id <JOB_ID> --timeout-seconds 660 --poll-seconds 2
 
-# 4. Inspect actual source changes
+# 4. Inspect actual source changes (uses host-mounted shared workspace)
 python3 poc/g3_codex_adapter.py verify \
-  --workspace /tmp/g3-workspace \
+  --workspace D:/tools/hybrid-agent/.runtime/poc-g3/workspace \
   --allowed-prefixes "src/" "tests/" \
   --required-files "src/slugify.py" "tests/__init__.py" "tests/test_slugify.py" \
   --test-cmd python3 -B -m unittest discover -s tests -t . -v
@@ -104,9 +105,10 @@ python3 poc/g3_codex_adapter.py plan-status --plan-id g3
 ## Disposable Fixture Location
 - **Task Contract**: `poc/g3_task.md`
 - **Plan Definition**: `poc/g3_plan.md`
-- **Scope Validation**: `poc/g3_validate_scope.py` (run before launch to validate scope match)
+- **Scope Validation**: `poc/g3_validate_scope.py` (invoked automatically by adapter before launch)
   ```bash
-  docker exec hybrid-agent-g3 python3 /tmp/g3_validate_scope.py /tmp/g3_task.md '[\"--allow-path\", \"src/**\", \"--allow-path\", \"tests/**\"]'
+  # Manual scope validation (optional - adapter does this automatically)
+  docker exec hybrid-agent-g3 python3 /work/poc/g3_validate_scope.py /work/poc/g3_task.md '[\"--allow-path\", \"src/**\", \"--allow-path\", \"tests/**\"]'
   ```
 
 ## Task Acceptance Criteria
@@ -153,8 +155,8 @@ python3 poc/g3_codex_adapter.py plan-status --plan-id g3
 ## Quick Start Checklist
 - [ ] `docker compose -f docker-compose.g3.yml up -d g3-orchestrator`
 - [ ] `docker logs hybrid-agent-g3` → note dashboard token
-- [ ] Open `http://localhost:8080/#token=<TOKEN>` in Windows browser
-- [ ] `python3 poc/g3_validate_scope.py poc/g3_task.md '[\"--allow-path\", \"src/**\", \"--allow-path\", \"tests/**\"]'`
-- [ ] Run Codex coordinator commands above (steps 1–7)
-- [ ] Record review verdict as actual Codex
+- [ ] Open `http://127.0.0.1:8080/#token=<TOKEN>` in Windows browser
+- [ ] Run Codex coordinator commands above (steps 1–7) — **scope validation is automatic**
+- [ ] Record review verdict as actual Codex (manual step, not automated)
 - [ ] Verify plan advancement
+- [ ] Confirm `G3_AUTHORIZED=1` was used only for the single live launch

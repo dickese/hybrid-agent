@@ -10,6 +10,7 @@ services:
     volumes:
       - "D:/tools/hybrid-agent:/work:ro"
       - "D:/tools/hybrid-agent/.runtime/poc-g3:/g3"
+      - "D:/tools/hybrid-agent/.runtime/poc-g3/workspace:/g3/workspace"
       - "C:/Users/ANH DUC/.config/opencode/opencode.json:/run/opencode-global.json:ro"
       - "D:/tools/hybrid-agent/.runtime/secrets/9router.key:/run/secrets/9router.key:ro"
     environment:
@@ -20,6 +21,6 @@ services:
       - G3_MODEL=9router/agent-build
       - G3_CLI_AGENT=bridge-g3
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
     command: sleep infinity
     restart: unless-stopped

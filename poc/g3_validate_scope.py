@@ -113,7 +113,7 @@ def main() -> int:
     # Check protected paths
     protected_violations = check_protected_paths_denied(runtime_allowed)
     if protected_violations:
-        print("❌ PROTECTED PATH VIOLATIONS:", file=sys.stderr)
+        print("PROTECTED PATH VIOLATIONS:", file=sys.stderr)
         for v in protected_violations:
             print(f"  {v}", file=sys.stderr)
         return 1
@@ -121,12 +121,12 @@ def main() -> int:
     # Check exact match
     ok, issues = check_exact_match(contract['allowed_paths'], runtime_allowed)
     if not ok:
-        print("❌ SCOPE MISMATCH:", file=sys.stderr)
+        print("SCOPE MISMATCH:", file=sys.stderr)
         for issue in issues:
             print(f"  {issue}", file=sys.stderr)
         return 1
 
-    print("✅ Scope validation passed: runtime allowlist matches task contract exactly")
+    print("Scope validation passed: runtime allowlist matches task contract exactly")
     return 0
 
 
