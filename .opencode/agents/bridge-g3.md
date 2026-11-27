@@ -36,9 +36,6 @@ permissions:
   - action: shell
     resource: "python -B -m unittest *"
     effect: allow
-  - action: shell
-    resource: "python -B -c *"
-    effect: allow
   # Allow coordination channel commands for progress events and questions
   - action: shell
     resource: "python3 *channel.py event*"

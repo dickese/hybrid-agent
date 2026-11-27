@@ -20,6 +20,13 @@ services:
       - G3_CLI=opencode-9router
       - G3_MODEL=9router/agent-build
       - G3_CLI_AGENT=bridge-g3
+      - AGENT_ORCHESTRATOR_HOME=/g3/state
+      - OPENCODE_CONFIG=/tmp/opencode-config/opencode.json
+      - OPENCODE_PROJECT_DIR=/g3/workspace
+      - OPENCODE_CWD=/g3/workspace
+      - OPENCODE_DISABLE_AUTOUPDATE=1
+      - OPENCODE_DISABLE_PROJECT_CONFIG=0
+      - OPENCODE_CONFIG_DIR=
     ports:
       - "127.0.0.1:8080:8080"
     command: >

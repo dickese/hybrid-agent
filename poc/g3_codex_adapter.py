@@ -64,10 +64,23 @@ def to_container_path(host_path: pathlib.Path) -> str:
 
 
 def compose_exec(args: list[str], env: dict[str, str], timeout: int = 300, **kwargs) -> subprocess.CompletedProcess:
-    """Execute a command in the running docker-compose service."""
-    cmd = ["docker", "compose", "-f", "docker-compose.g3.yml", "exec", "-T", "g3-orchestrator"] + args
-    # Use the host environment - docker-compose will pass env vars defined in the compose file
-    # and we pass additional ones via -e flags if needed
+    """Execute a command in the running docker-compose service with required environment."""
+    # Explicitly pass required environment variables via -e flags
+    # docker-compose exec -e VAR=value passes them to the exec'd process
+    required_env = [
+        "AGENT_ORCHESTRATOR_HOME=/g3/state",
+        "OPENCODE_CONFIG=/tmp/opencode-config/opencode.json",
+        "OPENCODE_PROJECT_DIR=/g3/workspace",
+        "OPENCODE_CWD=/g3/workspace",
+        "OPENCODE_DISABLE_AUTOUPDATE=1",
+        "OPENCODE_DISABLE_PROJECT_CONFIG=0",
+        "OPENCODE_CONFIG_DIR=",
+    ]
+    cmd = ["docker", "compose", "-f", "docker-compose.g3.yml", "exec", "-T"]
+    for var in required_env:
+        cmd.extend(["-e", var])
+    cmd.extend(["g3-orchestrator"] + args)
+    # Pass through host env for secrets (NINE_ROUTER_KEY) and other vars
     return subprocess.run(cmd, env=env, timeout=timeout, **kwargs)
 
 
@@ -122,18 +135,46 @@ def check_authorization_state(g3_base: pathlib.Path) -> bool:
     
     Returns True if authorization has been consumed (i.e., a live job was launched).
     """
-    # Check in container state
     auth_file = g3_base / "state" / ".g3_authorized"
-    if auth_file.exists():
-        return True
-    return False
+    return auth_file.exists()
 
 
-def mark_authorization_consumed(g3_base: pathlib.Path) -> None:
-    """Mark the G3 authorization as consumed (one live job launched)."""
+def reserve_authorization(g3_base: pathlib.Path, task_file: str, plan_id: str, checklist_item: str, 
+                         cli: str, model: str, cli_agent: str, allowed_paths: list[str], 
+                         timeout_seconds: int, max_changed_files: int) -> bool:
+    """Atomically reserve the G3 authorization for a specific launch.
+    
+    Returns True if reservation succeeded, False if already reserved.
+    Uses atomic file creation (O_CREAT | O_EXCL) to prevent race conditions.
+    """
+    import os
+    import json
+    
     auth_file = g3_base / "state" / ".g3_authorized"
     auth_file.parent.mkdir(parents=True, exist_ok=True)
-    auth_file.write_text(__import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat(), encoding="utf-8")
+    
+    # Prepare authorization metadata
+    auth_data = {
+        "task_file": task_file,
+        "plan_id": plan_id,
+        "checklist_item": checklist_item,
+        "cli": cli,
+        "model": model,
+        "cli_agent": cli_agent,
+        "allowed_paths": allowed_paths,
+        "timeout_seconds": timeout_seconds,
+        "max_changed_files": max_changed_files,
+        "reserved_at": __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat(),
+    }
+    
+    try:
+        # Atomic creation - fails if file already exists
+        fd = os.open(str(auth_file), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
+        with os.fdopen(fd, 'w') as f:
+            json.dump(auth_data, f, indent=2)
+        return True
+    except FileExistsError:
+        return False
 
 
 def validate_authorization(env: dict[str, str], g3_base: pathlib.Path) -> None:
@@ -143,6 +184,18 @@ def validate_authorization(env: dict[str, str], g3_base: pathlib.Path) -> None:
     
     if check_authorization_state(g3_base):
         raise RuntimeError("G3 authorization already consumed: maximum one live worker job permitted for G3-C fixture")
+
+
+def get_authorization_info(g3_base: pathlib.Path) -> dict:
+    """Get authorization metadata if exists."""
+    import json
+    auth_file = g3_base / "state" / ".g3_authorized"
+    if not auth_file.exists():
+        return {}
+    try:
+        return json.loads(auth_file.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
 
 
 def create_plan(task_file: pathlib.Path | None, plan_file: pathlib.Path, workspace: str, plan_id: str, title: str, executor: str, env: dict, g3_base: pathlib.Path) -> dict:
@@ -168,6 +221,21 @@ def launch_job(cli: str, model: str, cli_agent: str, workspace: str, task_file: 
     """Launch an approved OpenCode worker job. Requires G3_AUTHORIZED=1."""
     # Enforce G3 authorization (env var + durable state)
     validate_authorization(env, g3_base)
+    
+    # Atomic reservation - bind to specific task, plan, item, route, scope, timeout
+    task_file_str = str(task_file)
+    reserved = reserve_authorization(
+        g3_base, task_file_str, plan_id, checklist_item,
+        cli, model, cli_agent, allowed_paths,
+        timeout_seconds, max_changed_files
+    )
+    if not reserved:
+        # Check existing reservation matches
+        auth_info = get_authorization_info(g3_base)
+        if auth_info.get("job_id"):
+            raise RuntimeError(f"G3 authorization already consumed for job {auth_info['job_id']}: maximum one live worker job permitted")
+        else:
+            raise RuntimeError("G3 authorization already consumed: maximum one live worker job permitted for G3-C fixture")
     
     # Invoke scope validation before dispatch
     validate_scope_before_launch(task_file, allowed_paths, env, g3_base)
@@ -196,8 +264,14 @@ def launch_job(cli: str, model: str, cli_agent: str, workspace: str, task_file: 
     adapter_timeout = timeout_seconds + 120
     result = jrun(args, env, g3_base, timeout=adapter_timeout)
     
-    # Mark authorization as consumed on successful launch
-    mark_authorization_consumed(g3_base)
+    # Update authorization with job ID on successful launch
+    import json
+    auth_file = g3_base / "state" / ".g3_authorized"
+    auth_info = get_authorization_info(g3_base)
+    auth_info["job_id"] = result.get("job_id", "")
+    auth_info["launched_at"] = __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat()
+    auth_file.write_text(json.dumps(auth_info, indent=2), encoding="utf-8")
+    
     return result
 
 

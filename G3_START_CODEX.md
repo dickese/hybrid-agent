@@ -44,7 +44,7 @@ docker compose -f docker-compose.g3.yml restart g3-orchestrator
 - **Model**: `9router/agent-build`
 - **Agent Profile**: `bridge-g3` (`.opencode/agents/bridge-g3.md`)
 - **Coordination Channel**: Enabled — allows `python3 *channel.py event*` and `python3 *channel.py ask*`
-- **Permissions**: Read/glob/grep/edit restricted to `src/**`, `tests/**`; shell restricted to `python -B -m unittest *`, `python -B -c *` + coordination channel
+- **Permissions**: Read/glob/grep/edit restricted to `src/**`, `tests/**`; shell restricted to `python -B -m unittest *` + coordination channel
 
 ## Exact Codex Coordinator Invocation Commands (Windows PowerShell)
 ```powershell
