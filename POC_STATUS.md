@@ -4,7 +4,7 @@
 **Started:** 2026-11-27  
 **Status:** G0✅ G1✅ G2✅ **LIVE_PASS** G3-A✅ **READY** G3-B✅ **OFFLINE_VERIFIED** G3-C **G3_LIVE_PASS**
 
-**G4:** G4-A complete. G4-B0 passed the patch-output-only bootstrap checks. G4-B is **G4_B_REJECTED** because the one authorized worker patch failed staged applicability checks. G4-C through G4-E are pending. See [G4 implementation plan](handoff/G4_PLAN.md) and [G4-B evidence](handoff/evidence/INDEX.md#g4-b0-bootstrap-and-g4-b-review).
+**G4:** G4-A complete. G4-B0 and the complete-file handoff passed their respective checks. G4-B is **G4_B_REJECTED** after the correction failed compatibility and routing verification. G4-C through G4-E are pending. See [G4 implementation plan](handoff/G4_PLAN.md) and [correction evidence](handoff/evidence/INDEX.md#g4-b-complete-file-correction).
 
 ---
 

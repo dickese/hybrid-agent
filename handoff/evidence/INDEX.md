@@ -105,3 +105,16 @@ Evidence is under `.runtime/poc-g4/bootstrap-b0/`. The worker could read staged 
 | `review.json`, `plan-after-review.json` | Codex recorded rejection. G4-A remains done, G4-B is blocked, and G4-C through G4-E remain pending. |
 
 No patch was applied to the canonical tree. No routing or compatibility tests ran because the patch could not be staged. This evidence covers the G4-B0 bootstrap only. Production G4-D permission enforcement and the G4 acceptance criteria remain unverified.
+
+## G4-B Complete-File Correction
+
+Evidence is under `.runtime/poc-g4/correction-002/`.
+
+| Evidence | Observed result |
+|---|---|
+| `preflight.json` | Prior output did not contain a recoverable four-file result. Fake complete-file delivery passed and produced a reproducible diff for both modified and new files. Missing, extra, duplicate, symlink and non-regular entries were rejected. |
+| `authorization.json`, `job-status.json`, `live/control/worker-exit.json` | `g4-b-development-002` ran once for 566.532 seconds. Augani recorded successful execution and the worker container stopped. |
+| `diff-result.json`, `candidate.patch` | Exactly four regular files passed syntax validation. The deterministic diff applied to the exact baseline and reproduced all four candidate hashes. |
+| `staged-tests.txt`, `legacy-tests-windows.txt`, `legacy-loader.txt` | Adaptive suite stopped at setup with zero tests run. Windows compatibility ran nine tests, with two errors caused by renamed legacy keys. The direct loader probe also failed on missing `default_routing`. |
+| `independent-routing.txt` | Seven independent probes. R01 and R02 examples passed. R03, R04, R05 and R07 checks failed. |
+| `review.json`, `plan-after-review.json` | Codex rejected the correction. Both attempts remain recorded. G4-B is blocked, no candidate files were integrated, and G4-C through G4-E remain pending. |
