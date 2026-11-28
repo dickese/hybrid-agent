@@ -69,11 +69,12 @@ Plan-only, review-only, docs-only and read-only tasks skip source implementation
 | agent-review | External | read-only | Profile configured; independent G4 review not verified |
 | agent-vision | External | read-only | Profile configured; vision capability not verified here |
 | agent-docs | External | artifacts-only | Existing permissions conflict; revise |
+| native-coder | Native GPT-6 Luna | Authorized task-scoped source-write | Fallback approved; enforcement and runtime qualification pending |
 | native-architect | Native | artifacts-only | Proposed; runtime/access enforcement not verified |
 | native-reviewer | Native | read-only | G3 actual Codex review reported; separate native subagent profile not verified |
 | native-specialist | Native | read-only/artifacts-only | Proposed; verify before selection |
 
-Retain existing `agent-heavy` logical entry and combo for compatibility; reconcile its permissions and role in the existing registry. Do not treat this proposal as authorization for an extra writer. No native coder fallback.
+Retain existing `agent-heavy` logical entry and combo for compatibility; reconcile its permissions and role in the existing registry. Use External First ? Capability-Aware Routing ? Budget-Constrained Native Fallback. A qualified external coder remains preferred. One scoped native coder may recover the remaining work under explicit budget and authorization after verified external termination and exclusive ownership.
 
 ### Execution and ownership invariants
 
@@ -82,20 +83,20 @@ Retain existing `agent-heavy` logical entry and combo for compatibility; reconci
 - Orchestrator owns controlled Git actions only after verified worker and child-process termination. A timeout is not proof of termination. Ambiguous execution state is blocked until reconciliation.
 - Use Augani task packet, event/job result and review record. Include objective, relevant context, input artifacts, scope, forbidden actions, criteria, verification, expected output, dependencies. Return status, findings, evidence, changed files, tests, blockers and next action.
 - Record routing trace with selected agent, capabilities, access, risk, reason and escalation reason; persist via existing evidence/job mechanisms. Record actual provider/model only when observable.
-- V0 failure blocks acceptance even after positive LLM review. V2/V3 reviewers use independent sessions and cannot repair code. Corrections return to external coder under shared writer guard.
-- Model fallback stays in 9Router; capability escalation belongs to the orchestrator. Reuse one durable retry budget mapped to Augani attempts; avoid nested automatic retries, do not reset budget on route switch. Preserve G3 authorization fixture; G4 live execution needs separate explicit authorization.
+- V0 failure blocks acceptance even after positive LLM review. V2/V3 reviewers use independent sessions and cannot repair code. Corrections use the authorized coder under the shared writer guard.
+- Model fallback stays in 9Router; capability escalation belongs to the orchestrator. Reuse one Augani-backed attempt history, distinguish native recovery authorizations from external development attempts, and preserve consumed attempts on route changes. Preserve G3 authorization fixture; G4 live execution needs separate explicit authorization.
 
 ## 4. Merge-ready phase delta (map to actual local phase IDs)
 
 | Phase | Deliverable | Exit gate |
 |---|---|---|
 | G4-A | Reconcile current plan and artifacts, component map, architecture and role contracts | Local branch/HEAD/dirty state and writer ownership recorded; no conflicting artifacts; exact existing phase mapping |
-| G4-B | Extend registry and existing routing policy, logical role→runtime/profile mapping, routing traces | Offline L0–L3, risk overrides, eligibility, cost preference, provider availability, read-only routing and explicit native escalation tests |
-| G4-C | Integrate conditional stages and task packets into Augani-backed flow; objective-specific workflow; dynamic escalation | Fake-worker L0/L1/L2/L3 and plan-only/review-only/docs-only flows, preserved accepted artifacts and dependencies, no extra writer |
+| G4-B | Extend registry and existing routing policy, logical role→runtime/profile mapping, routing traces, pure native fallback eligibility, effort and budget decisions | Offline L0–L3, risk overrides, eligibility, cost preference, provider availability, read-only routing and explicit native escalation tests |
+| G4-C | Integrate conditional stages and task packets into Augani-backed flow; objective-specific workflow; remaining-scope External-to-Native handoff with candidate and dependency reuse | Fake-worker L0/L1/L2/L3 and plan-only/review-only/docs-only flows, preserved accepted artifacts and dependencies, no extra writer |
 | G4-D | Enforce access modes and writer ownership before any real source dispatch; V0–V3, retry/correction/recovery | Concurrent writer denied including host/container alias, unauthorized writes denied, crash/child process gate, V0 failure blocks acceptance, independent reviewer cannot edit, retry budget persists |
-| G4-E | Offline acceptance matrix, targeted compatibility regression, controlled live plan | All mandatory offline checks pass; separately authorized live qualification only; explicit GO/CONDITIONAL_GO/NO_GO |
+| G4-E | Offline acceptance matrix, targeted compatibility regression, controlled live plan | All mandatory offline checks pass; native effort, scope, budget exhaustion and writer exclusion verified, separately authorized live qualification only; explicit GO/CONDITIONAL_GO/NO_GO |
 
-G4-C source execution in development is fake-only until G4-D permission enforcement passes. Implementations of the G4 system itself must respect the exclusive external coder rule and current local working-tree ownership. If an existing phase already delivers a capability, link evidence rather than duplicate it.
+G4-C source execution in development is fake-only until G4-D permission enforcement passes. Implementations of the G4 system itself must respect the exclusive authorized source-writer rule and current local working-tree ownership. If an existing phase already delivers a capability, link evidence rather than duplicate it.
 
 ## 5. Acceptance evidence checklist (all G4 entries presently NOT_RUN)
 
